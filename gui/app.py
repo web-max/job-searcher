@@ -791,7 +791,10 @@ def _run_update():
 
 
 def _restart_app():
-    os.execv(sys.executable, [sys.executable] + sys.argv)
+    # sys.argv[0] under `python -m agent` is the __main__.py path, which can't be
+    # re-executed directly (relative imports) - rebuild the -m invocation instead
+    os.chdir(ROOT)
+    os.execv(sys.executable, [sys.executable, "-m", "agent"] + sys.argv[1:])
 
 
 @app.route("/settings/update", methods=["POST"])
