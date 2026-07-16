@@ -126,18 +126,35 @@ def test_wizard_profile_saved(fresh_client):
     import yaml
     from gui import app as gui_app
     resp = fresh_client.post("/welcome/profile", data={
-        "name": "Jane Test", "location": "Austin, TX", "timezone": "US Central",
+        "name": "Jane Test", "location": "Lima", "country": "Peru",
+        "timezone": "Peru (UTC-5)", "languages": "Spanish (native), English (fluent)",
         "titles": "Customer Success Manager, Account Manager",
-        "seniority": "mid", "remote_only": "true", "salary_floor": "$65,000",
+        "seniority": "mid", "remote_only": "true", "salary_floor": "$24,000",
         "summary": "Five years in customer-facing roles.",
         "skills": "onboarding, Salesforce", "dealbreakers": "on-site only"})
     assert resp.status_code == 302
     profile = yaml.safe_load(gui_app.PROFILE_PATH.read_text())
     assert profile["name"] == "Jane Test"
+    assert profile["country"] == "Peru"
+    assert profile["location"] == "Lima, Peru"
+    assert "latam" in profile["eligible_regions"]
+    assert "worldwide" in profile["eligible_regions"]
+    assert "peru" in profile["eligible_regions"]
+    assert profile["languages"] == ["Spanish (native)", "English (fluent)"]
     assert profile["target_titles"] == ["Customer Success Manager", "Account Manager"]
-    assert profile["salary_floor_usd"] == 65000
+    assert profile["salary_floor_usd"] == 24000
     assert profile["remote_only"] is True
-    assert profile["dealbreakers"] == ["on-site only"]
+
+
+def test_regions_for_country_mapping():
+    from gui.app import regions_for_country
+    peru = regions_for_country("Peru")
+    assert {"worldwide", "anywhere", "peru", "latam"} <= set(peru)
+    us = regions_for_country("United States")
+    assert "north america" in us and "latam" not in us
+    unknown = regions_for_country("Atlantis")
+    assert unknown[:2] == ["worldwide", "anywhere"] and "atlantis" in unknown
+    assert regions_for_country("") == ["worldwide", "anywhere"]
 
 
 def test_wizard_profile_requires_essentials(fresh_client):

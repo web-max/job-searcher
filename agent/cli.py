@@ -18,8 +18,9 @@ def cmd_discover(args):
     result = discover.run(load_profile(), load_settings())
     print(f"\nfetched {result['fetched']} postings "
           f"({', '.join(f'{k}: {v}' for k, v in result['per_source'].items())})")
-    print(f"fresh: {result['fresh']}  kept after dealbreaker filter: {result['kept']}  "
-          f"new in tracker: {result['new']}")
+    print(f"fresh: {result['fresh']}  dropped for location restrictions: "
+          f"{result.get('geo_filtered_out', 0)}  kept after dealbreaker filter: "
+          f"{result['kept']}  new in tracker: {result['new']}")
 
 
 def cmd_rank(args):

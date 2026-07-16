@@ -3,8 +3,25 @@
 
 name: "Jane Example"
 pronouns: "she/her"
-location: "Austin, TX"
-timezone: "US Central (UTC-6)"
+location: "Lima, Peru"
+country: "Peru"                  # where she lives and can legally work
+timezone: "Peru (UTC-5, no DST - full overlap with US Eastern/Central)"
+
+# Which location restrictions she can apply to. Jobs restricted to places NOT
+# on this list get filtered out before ranking ("USA only", "Europe", etc.).
+# Terms are matched case-insensitively against each posting's location field.
+eligible_regions:
+  - "worldwide"
+  - "anywhere"
+  - "peru"
+  - "latam"
+  - "latin america"
+  - "south america"
+  - "americas"
+
+languages:
+  - "Spanish (native)"
+  - "English (fluent)"
 
 # What she's looking for
 target_titles:

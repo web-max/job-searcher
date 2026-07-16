@@ -75,8 +75,13 @@ def draft(kind: str, person: str = "", person_role: str = "", company: str = "",
 
 CANDIDATE FACTS (only source of truth about her):
 {profile.get('summary', '')}
+Based in: {profile.get('location')} ({profile.get('timezone', '')})
+Languages: {', '.join(profile.get('languages', [])) or 'not specified'}
 Target roles: {', '.join(profile.get('target_titles', []))}
 Links: {profile.get('links', {})}
+Note: if she is outside the recipient's country and timezone overlap is genuinely
+good (e.g. Peru is UTC-5, same hours as US Eastern/Central), that is a true,
+useful detail worth one short clause when relevant. Never oversell it.
 
 MESSAGE KIND: {kind} - {KINDS[kind]}
 CHANNEL: {channel}

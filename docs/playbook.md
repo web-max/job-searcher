@@ -82,6 +82,30 @@ is empty. The market punishes volume and pays for warmth. That's the whole game.
 | Follow-up memory | Fully (this repo) | High — 42% of replies come from follow-ups |
 | Interview prep | Chat/voice with any LLM | High, free |
 
+## Applying from outside the US (Peru / LATAM edition)
+
+The market reality: most "remote" postings are geo-fenced to the employer's payroll
+countries, and no amount of enthusiasm beats a residency requirement. The system
+handles this — postings restricted to regions she can't work from are filtered at
+discovery, and the ranker treats location as a knockout. What's left is the real
+opportunity set:
+
+- **Worldwide/"anywhere" listings** — WWR, Remotive (its geo tags are explicit),
+  Himalayas, and Jobicy (which has a LATAM filter the app uses automatically).
+- **LATAM-restricted listings** — a fast-growing category: US companies hiring
+  Spanish/English bilingual talent in compatible timezones at LATAM rates.
+- **EOR-friendly companies** — anyone hiring through Deel, Remote.com, Oyster, or
+  Velocity Global can employ in Peru with zero friction. Seeing those names in a
+  posting (or the company's careers page) is a strong positive signal; the ranker
+  rewards it.
+- **Contractor roles** — many global employers prefer international contractor
+  arrangements; be open to them, with eyes open about benefits.
+
+Her honest selling points, worth one clause in outreach where relevant: Peru is
+UTC-5 with no daylight saving — identical hours to US Eastern in winter, Central in
+summer, so "full overlap with US business hours" is simply true; and native Spanish
+plus fluent English is a real differentiator for LATAM-market roles at US companies.
+
 ## Morale notes (for the human running this)
 
 The median successful search in this market is ~6 months and ~30+ applications even

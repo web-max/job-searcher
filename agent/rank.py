@@ -11,10 +11,18 @@ if the candidate would plausibly get an interview. Score each job 0-100:
   75-89: solid fit, worth a tailored application
   65-74: plausible stretch, apply if the week's quota allows
   <65: skip (wrong seniority, wrong field, location conflict, dealbreaker)
-Penalize hard: location/timezone conflicts with the candidate's constraints,
-seniority mismatch by more than one level, required skills the candidate clearly
-lacks. Reward: overlap with the candidate's strongest experience, explicit remote
-friendliness, salary at or above the floor."""
+Location is a KNOCKOUT, not a preference: if the posting restricts hiring to
+countries or regions that do not include the candidate's country of residence
+(e.g. "USA only", "must be US-based", "EU work authorization required" for a
+non-EU candidate), score it below 40 no matter how good the skills fit is -
+payroll and residency requirements are non-negotiable. "Worldwide", "anywhere",
+the candidate's own country/region, or silence about location are all fine.
+Penalize hard: timezone conflicts with the candidate's constraints, seniority
+mismatch by more than one level, required skills the candidate clearly lacks.
+Reward: overlap with the candidate's strongest experience, explicit remote
+friendliness, region-inclusive hiring (worldwide / the candidate's region /
+"hire through Deel/Remote/Oyster" style employer-of-record language), salary at
+or above the floor, and timezone alignment stated as an asset."""
 
 
 def rank_batch(profile_text: str, jobs: list) -> list:

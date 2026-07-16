@@ -19,6 +19,7 @@ discovery:
     remoteok: true
     weworkremotely: true
     himalayas: true
+    jobicy: true                  # supports region filtering (LATAM etc.)
     watchlist_boards: true
     hn_who_is_hiring: false       # enable for tech roles
 

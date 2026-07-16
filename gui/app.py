@@ -210,8 +210,9 @@ you can still browse jobs; scoring and drafting will switch on once a key is add
 def welcome_profile():
     if request.method == "POST":
         f = {k: request.form.get(k, "").strip() for k in
-             ("name", "location", "timezone", "titles", "seniority", "remote_only",
-              "salary_floor", "summary", "skills", "dealbreakers")}
+             ("name", "location", "country", "timezone", "titles", "seniority",
+              "remote_only", "salary_floor", "summary", "skills", "dealbreakers",
+              "languages")}
         if not (f["name"] and f["titles"] and f["summary"]):
             return redirect("/welcome/profile?err=1")
         _write_profile(f)
@@ -227,16 +228,22 @@ impressive</b> - it will never claim anything you don't put here.</p>
 <form method="post">
 <div class="grid2">
 <div><label>Your name</label><input name="name" required></div>
-<div><label>Where you live (city, state)</label><input name="location" placeholder="Austin, TX"></div>
-<div><label>Timezone</label><input name="timezone" placeholder="US Central"></div>
+<div><label>City you live in</label><input name="location" placeholder="Lima"></div>
+<div><label>Country you live in</label><input name="country" placeholder="Peru" required></div>
+<div><label>Timezone</label><input name="timezone" placeholder="Peru (UTC-5)"></div>
+<div><label>Languages you work in</label><input name="languages" placeholder="Spanish (native), English (fluent)"></div>
 <div><label>Experience level</label><select name="seniority">
 <option value="junior">Early career</option><option value="mid" selected>Mid</option>
 <option value="senior">Senior</option></select></div>
 <div><label>Remote only?</label><select name="remote_only">
 <option value="true" selected>Yes, remote only</option>
 <option value="false">Remote preferred, local OK</option></select></div>
-<div><label>Lowest salary you'd accept (USD/yr)</label><input name="salary_floor" placeholder="65000"></div>
+<div><label>Lowest salary you'd accept (USD/yr)</label><input name="salary_floor" placeholder="24000"></div>
 </div>
+<p class="muted">Your country matters a lot: most remote jobs are restricted to certain
+countries or regions, and the app filters out the ones you can't apply to (a job marked
+"USA only" never wastes your time). Jobs open worldwide, to your country, or to your
+region all stay in.</p>
 <label>Job titles you want (one per line or comma-separated)</label>
 <textarea name="titles" rows="2" placeholder="Customer Success Manager, Account Manager"></textarea>
 <label>Your background, in plain sentences (3-6 of them)</label>
@@ -354,6 +361,42 @@ def _save_env_key(name, value):
     ENV_PATH.write_text("\n".join(lines) + "\n")
 
 
+# country -> region terms whose location-restricted jobs she can still apply to
+_REGION_MAP = {
+    "latam": ["latam", "latin america", "south america", "americas"],
+    "europe": ["europe", "eu", "emea"],
+    "north america": ["north america", "americas"],
+    "apac": ["apac", "asia"],
+}
+_COUNTRY_REGIONS = {
+    "peru": "latam", "mexico": "latam", "brazil": "latam", "argentina": "latam",
+    "colombia": "latam", "chile": "latam", "ecuador": "latam", "bolivia": "latam",
+    "uruguay": "latam", "paraguay": "latam", "venezuela": "latam",
+    "costa rica": "latam", "guatemala": "latam", "panama": "latam",
+    "dominican republic": "latam", "honduras": "latam", "el salvador": "latam",
+    "usa": "north america", "united states": "north america", "us": "north america",
+    "canada": "north america",
+    "uk": "europe", "united kingdom": "europe", "germany": "europe",
+    "france": "europe", "spain": "europe", "portugal": "europe",
+    "netherlands": "europe", "poland": "europe", "ireland": "europe",
+    "italy": "europe",
+    "india": "apac", "philippines": "apac", "australia": "apac",
+    "new zealand": "apac", "japan": "apac", "singapore": "apac",
+}
+
+
+def regions_for_country(country):
+    """Eligible-region terms for a country: worldwide + the country + its region."""
+    terms = ["worldwide", "anywhere"]
+    c = (country or "").strip().lower()
+    if c:
+        terms.append(c)
+        region = _COUNTRY_REGIONS.get(c)
+        if region:
+            terms.extend(_REGION_MAP[region])
+    return terms
+
+
 def _write_profile(f):
     import yaml
 
@@ -365,10 +408,14 @@ def _write_profile(f):
         floor = int(f["salary_floor"].replace(",", "").replace("$", "") or 0)
     except ValueError:
         floor = 0
+    location = ", ".join(x for x in (f["location"], f["country"]) if x)
     profile = {
         "name": f["name"],
-        "location": f["location"],
+        "location": location,
+        "country": f["country"],
         "timezone": f["timezone"],
+        "eligible_regions": regions_for_country(f["country"]),
+        "languages": listify(f.get("languages", "")),
         "target_titles": listify(f["titles"]),
         "seniority": f["seniority"] or "mid",
         "remote_only": f["remote_only"] == "true",

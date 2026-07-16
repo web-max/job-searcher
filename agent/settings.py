@@ -28,6 +28,9 @@ def profile_summary_for_llm(profile: dict) -> str:
     lines = [
         f"Name: {profile.get('name')}",
         f"Location: {profile.get('location')} ({profile.get('timezone')})",
+        f"Country of residence / work eligibility: {profile.get('country') or profile.get('location')}",
+        f"Can apply to jobs restricted to: {', '.join(profile.get('eligible_regions', [])) or 'anywhere'}",
+        f"Languages: {', '.join(profile.get('languages', [])) or 'not specified'}",
         f"Target titles: {', '.join(profile.get('target_titles', []))}",
         f"Seniority: {profile.get('seniority')}",
         f"Remote only: {profile.get('remote_only')}",

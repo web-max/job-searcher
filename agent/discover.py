@@ -47,16 +47,20 @@ def _strip_html(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+_MOJIBAKE_MARKERS = ("Ã", "Å", "Ä", "Â", "â€")
+
+
 def _fix_mojibake(text: str) -> str:
     """Repair double-encoded UTF-8 from sloppy sources ('SÃ£o Paulo' -> 'São Paulo')."""
-    if "Ã" in text or "â€" in text:
-        try:
-            repaired = text.encode("latin-1").decode("utf-8")
-            if "Ã" not in repaired:
-                return repaired
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
-    return text
+    if not any(m in text for m in _MOJIBAKE_MARKERS):
+        return text
+    try:
+        repaired = text.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+    before = sum(text.count(m) for m in _MOJIBAKE_MARKERS)
+    after = sum(repaired.count(m) for m in _MOJIBAKE_MARKERS)
+    return repaired if after < before else text
 
 
 def _job(source, company, title, url, location="", description="", posted_at="", salary=""):
@@ -79,6 +83,60 @@ def _matches_terms(text: str, terms: list) -> bool:
         return True
     lowered = text.lower()
     return any(t.lower() in lowered for t in terms)
+
+
+# Geography tokens that mark a posting as location-RESTRICTED. If a job's
+# location field names any of these and none of the candidate's eligible_regions
+# match, the job is dropped before ranking. Locations that name no known
+# geography ("Remote", a city we don't recognize) are kept for the ranker.
+_US_STATES = [
+    "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
+    "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho",
+    "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine",
+    "maryland", "massachusetts", "michigan", "minnesota", "mississippi",
+    "missouri", "montana", "nebraska", "nevada", "new hampshire", "new jersey",
+    "new mexico", "new york", "north carolina", "north dakota", "ohio",
+    "oklahoma", "oregon", "pennsylvania", "rhode island", "south carolina",
+    "south dakota", "tennessee", "texas", "utah", "vermont", "virginia",
+    "washington", "west virginia", "wisconsin", "wyoming",
+]
+
+_GEO_TOKENS = [
+    "usa", "u.s.", "us only", "us-only", "united states", "north america",
+    "canada", "uk", "united kingdom", "europe", "eu ", "emea", "cet",
+    "germany", "france", "spain", "portugal", "netherlands", "poland",
+    "ireland", "italy", "austria", "switzerland", "belgium", "sweden",
+    "norway", "denmark", "finland", "nordics", "czech", "romania", "hungary",
+    "greece", "bulgaria", "croatia", "serbia", "slovakia", "slovenia",
+    "lithuania", "latvia", "estonia", "ukraine", "moldova", "turkey",
+    "israel", "uae", "dubai", "saudi", "qatar", "jordan", "lebanon",
+    "apac", "asia", "india", "philippines", "australia", "new zealand",
+    "japan", "china", "hong kong", "taiwan", "korea", "singapore", "vietnam",
+    "thailand", "indonesia", "malaysia", "pakistan", "bangladesh", "sri lanka",
+    "africa", "kenya", "nigeria", "egypt", "morocco", "tunisia", "ghana",
+    "latam", "latin america", "south america", "americas",
+    "mexico", "méxico", "brazil", "brasil", "argentina", "colombia", "chile",
+    "peru", "ecuador", "bolivia", "uruguay", "paraguay", "venezuela",
+    "costa rica", "guatemala", "panama",
+    "eastern time", " et)", " pt)", " est", " pst", "cst",
+] + _US_STATES
+
+
+def location_eligible(location: str, eligible_regions: list) -> bool:
+    """True if the candidate can plausibly apply given the posting's location field.
+
+    Conservative: only drops a job when the location clearly names geography and
+    none of it matches the candidate's eligible regions. Empty/vague locations
+    pass through - the LLM ranker makes the finer call from the description.
+    """
+    if not eligible_regions:
+        return True
+    loc = (location or "").lower()
+    if not loc.strip() or loc.strip() in ("remote", "see post", "anywhere"):
+        return True
+    if any(r.lower() in loc for r in eligible_regions):
+        return True
+    return not any(tok in loc for tok in _GEO_TOKENS)
 
 
 # ---------------------------------------------------------------- sources
@@ -208,6 +266,46 @@ def fetch_himalayas(terms, pages=10):
     return jobs
 
 
+# country -> Jobicy geo slug (https://jobicy.com/api/v2/remote-jobs?geo=...)
+_JOBICY_GEO = {
+    "peru": "latam", "mexico": "latam", "brazil": "latam", "argentina": "latam",
+    "colombia": "latam", "chile": "latam", "ecuador": "latam", "bolivia": "latam",
+    "uruguay": "latam", "paraguay": "latam", "venezuela": "latam",
+    "costa rica": "latam", "guatemala": "latam",
+    "usa": "usa", "united states": "usa", "canada": "canada",
+    "uk": "uk", "united kingdom": "uk",
+}
+
+
+def fetch_jobicy(terms, country=""):
+    """Jobicy free API; supports region filtering (geo=latam etc.), which makes it
+    the best built-in source for candidates outside the US/EU."""
+    params = {"count": 50}
+    geo = _JOBICY_GEO.get((country or "").lower())
+    if geo:
+        params["geo"] = geo
+    resp = _get("https://jobicy.com/api/v2/remote-jobs", params=params)
+    if not resp:
+        return []
+    jobs = []
+    for j in resp.json().get("jobs", []):
+        blob = f"{j.get('jobTitle','')} {j.get('jobExcerpt','')} {j.get('jobDescription','')}"
+        if not _matches_terms(blob, terms):
+            continue
+        salary = ""
+        if j.get("annualSalaryMin") and j.get("annualSalaryMax"):
+            salary = f"{j.get('salaryCurrency','')} {j['annualSalaryMin']}-{j['annualSalaryMax']}".strip()
+        jobs.append(_job(
+            "jobicy", j.get("companyName"), j.get("jobTitle"),
+            j.get("url") or j.get("jobSlug", ""),
+            location=j.get("jobGeo", "Remote"),
+            description=j.get("jobDescription") or j.get("jobExcerpt", ""),
+            posted_at=(j.get("pubDate") or "")[:10],
+            salary=salary,
+        ))
+    return jobs
+
+
 def fetch_watchlist(watchlist):
     """Poll target companies' career pages via their public board APIs."""
     jobs = []
@@ -301,6 +399,7 @@ def run(profile: dict, settings: dict) -> dict:
         ("remoteok", lambda: fetch_remoteok(terms)),
         ("weworkremotely", lambda: fetch_weworkremotely(terms)),
         ("himalayas", lambda: fetch_himalayas(terms)),
+        ("jobicy", lambda: fetch_jobicy(terms, country=profile.get("country", ""))),
         ("watchlist_boards", lambda: fetch_watchlist(profile.get("watchlist"))),
         ("hn_who_is_hiring", lambda: fetch_hn_whoishiring(terms)),
     ]
@@ -317,12 +416,16 @@ def run(profile: dict, settings: dict) -> dict:
     cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age)).strftime("%Y-%m-%d")
     fresh = [j for j in all_jobs if not j["posted_at"] or j["posted_at"] >= cutoff]
 
+    eligible_regions = profile.get("eligible_regions") or []
+    in_region = [j for j in fresh if location_eligible(j["location"], eligible_regions)]
+
     dealbreakers = [d.lower() for d in profile.get("dealbreakers") or []]
     kept = [
-        j for j in fresh
+        j for j in in_region
         if not any(d in (j["title"] + " " + j["description"]).lower() for d in dealbreakers)
     ]
 
     new_count = tracker.upsert_jobs(kept)
-    return {"fetched": len(all_jobs), "fresh": len(fresh), "kept": len(kept),
+    return {"fetched": len(all_jobs), "fresh": len(fresh),
+            "geo_filtered_out": len(fresh) - len(in_region), "kept": len(kept),
             "new": new_count, "per_source": per_source}
