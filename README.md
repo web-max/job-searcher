@@ -36,15 +36,21 @@ which is what actually gets replies.
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env            # add your DeepSeek (or Anthropic/OpenAI) API key
-cp config/profile.example.yaml config/profile.yaml   # fill in the real profile
 python -m agent gui             # opens the web app in your browser
 ```
 
-On Windows: follow `docs/setup-windows.md` (written for non-technical users),
-then just double-click `run-app.bat`. The app has buttons for everything below,
-plus a "Learn my writing style" button, a drafts inbox with a copy button and an
-"I sent it ✓" tracker, and a People page for logging replies and calls.
+**First run opens a guided setup wizard** that walks through everything: pasting a
+DeepSeek API key (with a live "does this key work?" test), building the profile with
+a friendly form, teaching the app your writing style by pasting a few of your own
+messages, and a tour of how to actually run a job search with it. No files to edit.
+It can be re-run anytime from the Help page.
+
+Works the same on **Windows** (double-click `run-app.bat`; see `docs/setup-windows.md`
+for a from-zero guide), **macOS** (double-click `run-app.command`, or
+`python3 -m agent gui`), and **Linux**. The app has buttons for everything below, plus
+a drafts inbox with a copy button and an "I sent it ✓" tracker, and a People page for
+logging replies and calls. Power users can still configure by hand
+(`.env.example` → `.env`, `config/profile.example.yaml` → `config/profile.yaml`).
 
 ## Quick start (the CLI way)
 

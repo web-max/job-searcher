@@ -11,6 +11,27 @@ def client(tmp_path, monkeypatch):
     from gui import app as gui_app
     monkeypatch.setattr(gui_app, "OUTBOX_DIR", tmp_path / "outbox")
     (tmp_path / "outbox").mkdir()
+    # mark as onboarded so the wizard gate doesn't redirect page tests
+    flag = tmp_path / ".onboarded"
+    flag.write_text("done")
+    monkeypatch.setattr(gui_app, "ONBOARDED_FLAG", flag)
+    monkeypatch.setattr(gui_app, "ENV_PATH", tmp_path / ".env")
+    monkeypatch.setattr(gui_app, "PROFILE_PATH", tmp_path / "profile.yaml")
+    gui_app.app.config["TESTING"] = True
+    return gui_app.app.test_client()
+
+
+@pytest.fixture()
+def fresh_client(tmp_path, monkeypatch):
+    """A client that has NOT been onboarded (wizard tests)."""
+    monkeypatch.setenv("MOCK_LLM", "1")
+    monkeypatch.setattr(tracker, "DB_PATH", tmp_path / "test.db")
+    from gui import app as gui_app
+    monkeypatch.setattr(gui_app, "OUTBOX_DIR", tmp_path / "outbox")
+    (tmp_path / "outbox").mkdir()
+    monkeypatch.setattr(gui_app, "ONBOARDED_FLAG", tmp_path / ".onboarded")
+    monkeypatch.setattr(gui_app, "ENV_PATH", tmp_path / ".env")
+    monkeypatch.setattr(gui_app, "PROFILE_PATH", tmp_path / "profile.yaml")
     gui_app.app.config["TESTING"] = True
     return gui_app.app.test_client()
 
@@ -59,3 +80,82 @@ def test_outbox_traversal_blocked(client):
 def test_missing_job_404ish(client):
     resp = client.get("/job/nope")
     assert b"not found" in resp.data.lower()
+
+
+# ---------------------------------------------------------------- onboarding
+
+def test_fresh_user_redirected_to_wizard(fresh_client):
+    resp = fresh_client.get("/")
+    assert resp.status_code == 302
+    assert "/welcome" in resp.headers["Location"]
+
+
+def test_wizard_pages_render(fresh_client):
+    for path in ("/welcome", "/welcome/key", "/welcome/profile",
+                 "/welcome/voice", "/welcome/tour"):
+        resp = fresh_client.get(path)
+        assert resp.status_code == 200, path
+        assert b"first-time setup" in resp.data
+
+
+def test_wizard_key_skip(fresh_client):
+    resp = fresh_client.post("/welcome/key", data={"skip": "1"})
+    assert resp.status_code == 302
+    assert "/welcome/profile" in resp.headers["Location"]
+
+
+def test_wizard_key_saved_when_valid(fresh_client, monkeypatch, tmp_path):
+    from gui import app as gui_app
+    monkeypatch.setattr(gui_app, "_test_deepseek_key", lambda k: (True, "ok"))
+    resp = fresh_client.post("/welcome/key", data={"key": "sk-test123"})
+    assert resp.status_code == 302
+    assert "DEEPSEEK_API_KEY=sk-test123" in gui_app.ENV_PATH.read_text()
+
+
+def test_wizard_key_rejected_when_invalid(fresh_client, monkeypatch):
+    from gui import app as gui_app
+    monkeypatch.setattr(gui_app, "_test_deepseek_key",
+                        lambda k: (False, "the key was rejected"))
+    resp = fresh_client.post("/welcome/key", data={"key": "sk-bad"})
+    assert resp.status_code == 200
+    assert b"didn't work" in resp.data
+    assert not gui_app.ENV_PATH.exists()
+
+
+def test_wizard_profile_saved(fresh_client):
+    import yaml
+    from gui import app as gui_app
+    resp = fresh_client.post("/welcome/profile", data={
+        "name": "Jane Test", "location": "Austin, TX", "timezone": "US Central",
+        "titles": "Customer Success Manager, Account Manager",
+        "seniority": "mid", "remote_only": "true", "salary_floor": "$65,000",
+        "summary": "Five years in customer-facing roles.",
+        "skills": "onboarding, Salesforce", "dealbreakers": "on-site only"})
+    assert resp.status_code == 302
+    profile = yaml.safe_load(gui_app.PROFILE_PATH.read_text())
+    assert profile["name"] == "Jane Test"
+    assert profile["target_titles"] == ["Customer Success Manager", "Account Manager"]
+    assert profile["salary_floor_usd"] == 65000
+    assert profile["remote_only"] is True
+    assert profile["dealbreakers"] == ["on-site only"]
+
+
+def test_wizard_profile_requires_essentials(fresh_client):
+    resp = fresh_client.post("/welcome/profile", data={"name": "", "titles": "",
+                                                       "summary": ""})
+    assert resp.status_code == 302
+    assert "err=1" in resp.headers["Location"]
+
+
+def test_wizard_finish_sets_flag_and_unlocks(fresh_client):
+    from gui import app as gui_app
+    resp = fresh_client.post("/welcome/tour")
+    assert resp.status_code == 302
+    assert gui_app.ONBOARDED_FLAG.exists()
+    resp = fresh_client.get("/")
+    assert resp.status_code == 200  # gate lifted
+
+
+def test_onboarded_user_can_rerun_wizard(client):
+    resp = client.get("/welcome")
+    assert resp.status_code == 200

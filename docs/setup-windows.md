@@ -2,6 +2,12 @@
 
 Total time: about 15 minutes. You only do this once.
 
+> **The short version:** do steps 1–3 below, then double-click `run-app.bat`.
+> The app opens with a **setup wizard** that walks you through the rest —
+> the AI key, your profile, and your writing style — with a guided tour at the
+> end. Steps 4–6 below are only needed if you prefer doing it by hand.
+> (On a Mac it's the same: install Python, then double-click `run-app.command`.)
+
 ## 1. Install Python
 
 1. Go to https://www.python.org/downloads/ and click the big yellow download button.

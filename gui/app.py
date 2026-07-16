@@ -11,6 +11,7 @@ Design rules:
 """
 import html
 import io
+import os
 import threading
 import traceback
 from contextlib import redirect_stdout, redirect_stderr
@@ -19,10 +20,14 @@ from pathlib import Path
 from flask import Flask, redirect, request, url_for
 
 from agent import tracker
-from agent.paths import OUTBOX_DIR, VOICE_PROFILE_PATH, VOICE_CORPUS_DIR
+from agent.paths import (DATA_DIR, OUTBOX_DIR, PROFILE_PATH, ROOT,
+                         VOICE_CORPUS_DIR, VOICE_PROFILE_PATH)
 from agent.settings import load_profile, load_settings
 
 app = Flask(__name__)
+
+ENV_PATH = ROOT / ".env"
+ONBOARDED_FLAG = DATA_DIR / ".onboarded"
 
 # one background job at a time; state shown on the dashboard
 _task = {"name": None, "log": "", "running": False, "error": None}
@@ -106,6 +111,279 @@ def page(title, body, refresh=False):
 
 def esc(x):
     return html.escape(str(x if x is not None else ""))
+
+
+# ------------------------------------------------------------------ onboarding
+
+def _needs_onboarding():
+    return not ONBOARDED_FLAG.exists() and not PROFILE_PATH.exists()
+
+
+@app.before_request
+def _onboarding_gate():
+    if (_needs_onboarding() and request.method == "GET"
+            and not request.path.startswith("/welcome")):
+        return redirect("/welcome")
+    return None
+
+
+def _wizard_frame(step, title, inner, back=None):
+    steps = ["Welcome", "AI key", "About you", "Your voice", "How it works"]
+    crumbs = " · ".join(
+        f"<b>{s}</b>" if i == step else f'<span class="muted">{s}</span>'
+        for i, s in enumerate(steps))
+    back_html = f'<a class="btn secondary" href="{back}">Back</a> ' if back else ""
+    body = f"""<div class="card" style="max-width:640px;margin:40px auto;">
+<p class="muted">Step {step + 1} of {len(steps)} &nbsp;·&nbsp; {crumbs}</p>
+<h1>{title}</h1>
+{inner}
+<p style="margin-top:18px">{back_html}</p>
+</div>"""
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html.escape(title)}</title>{STYLE}</head><body>
+<nav><span class="brand">Job Search HQ</span><span class="muted">first-time setup</span></nav>
+<main>{body}</main></body></html>"""
+
+
+@app.route("/welcome")
+def welcome():
+    inner = """
+<p>This app is your job search assistant. It does the tedious parts - finding fresh
+postings, judging fit, drafting messages and application materials in <i>your</i>
+writing style - so your energy goes into the part that gets people hired: real
+conversations with real people.</p>
+<p><b>One promise before anything else: it never sends anything.</b> Every message it
+writes waits in a drafts inbox for you to read, edit, and send yourself. You stay
+completely in control, your accounts stay safe, and everything that goes out is
+genuinely yours.</p>
+<p>Setup takes about ten minutes, and the most important step is just telling it
+about yourself.</p>
+<p><a class="btn" href="/welcome/key">Let's set it up</a></p>"""
+    return _wizard_frame(0, "Hi! Let's get you set up.", inner)
+
+
+@app.route("/welcome/key", methods=["GET", "POST"])
+def welcome_key():
+    msg = ""
+    if request.method == "POST":
+        key = request.form.get("key", "").strip()
+        if request.form.get("skip"):
+            return redirect("/welcome/profile")
+        if key:
+            ok, detail = _test_deepseek_key(key)
+            if ok:
+                _save_env_key("DEEPSEEK_API_KEY", key)
+                os.environ["DEEPSEEK_API_KEY"] = key
+                return redirect("/welcome/profile")
+            msg = f'<div class="banner warnbox">That key didn\'t work: {esc(detail)} - double-check and try again, or skip for now.</div>'
+        else:
+            msg = '<div class="banner warnbox">Paste a key first, or click Skip.</div>'
+    has_key = bool(os.getenv("DEEPSEEK_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+                   or os.getenv("OPENAI_API_KEY"))
+    already = ('<div class="banner">Good news: an AI key is already configured. '
+               'You can go straight on.</div>') if has_key else ""
+    inner = f"""
+{already}{msg}
+<p>The app uses an AI service called <b>DeepSeek</b> to read job postings and draft
+messages. It's pay-as-you-go and extremely cheap - this app uses well under
+<b>$1 per month</b> at normal usage.</p>
+<ol>
+<li>Go to <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a> and create an account.</li>
+<li>Add the minimum credit (a few dollars lasts months).</li>
+<li>Open "API keys", create one, and copy it - it starts with <code>sk-</code>.</li>
+</ol>
+<form method="post">
+<label>Paste your key here</label>
+<input name="key" placeholder="sk-..." autocomplete="off">
+<p style="margin-top:12px">
+<button class="btn">Test &amp; save</button>
+<button class="btn secondary" name="skip" value="1">Skip for now</button></p>
+</form>
+<p class="muted">The key is stored only in a file on this computer (.env). If you skip,
+you can still browse jobs; scoring and drafting will switch on once a key is added
+(there's a reminder on the Help page).</p>"""
+    return _wizard_frame(1, "Connect the AI (10 minutes, one time)", inner, back="/welcome")
+
+
+@app.route("/welcome/profile", methods=["GET", "POST"])
+def welcome_profile():
+    if request.method == "POST":
+        f = {k: request.form.get(k, "").strip() for k in
+             ("name", "location", "timezone", "titles", "seniority", "remote_only",
+              "salary_floor", "summary", "skills", "dealbreakers")}
+        if not (f["name"] and f["titles"] and f["summary"]):
+            return redirect("/welcome/profile?err=1")
+        _write_profile(f)
+        return redirect("/welcome/voice")
+    err = ('<div class="banner warnbox">Name, job titles, and background are needed - '
+           'the AI can only judge fit from what you tell it.</div>'
+           if request.args.get("err") else "")
+    inner = f"""
+{err}
+<p>This is the single highest-leverage part of setup. The AI scores every job against
+what you write here, and drafts messages from it. <b>Honest and specific beats
+impressive</b> - it will never claim anything you don't put here.</p>
+<form method="post">
+<div class="grid2">
+<div><label>Your name</label><input name="name" required></div>
+<div><label>Where you live (city, state)</label><input name="location" placeholder="Austin, TX"></div>
+<div><label>Timezone</label><input name="timezone" placeholder="US Central"></div>
+<div><label>Experience level</label><select name="seniority">
+<option value="junior">Early career</option><option value="mid" selected>Mid</option>
+<option value="senior">Senior</option></select></div>
+<div><label>Remote only?</label><select name="remote_only">
+<option value="true" selected>Yes, remote only</option>
+<option value="false">Remote preferred, local OK</option></select></div>
+<div><label>Lowest salary you'd accept (USD/yr)</label><input name="salary_floor" placeholder="65000"></div>
+</div>
+<label>Job titles you want (one per line or comma-separated)</label>
+<textarea name="titles" rows="2" placeholder="Customer Success Manager, Account Manager"></textarea>
+<label>Your background, in plain sentences (3-6 of them)</label>
+<textarea name="summary" rows="5" placeholder="Five years in customer-facing roles: two years as a CSM at a SaaS company where I owned a $1.2M book of business with 94% retention. Before that, hospitality management. Strong at onboarding and saving unhappy accounts. Comfortable with Salesforce and Zendesk."></textarea>
+<label>Skills &amp; tools (comma-separated)</label>
+<textarea name="skills" rows="2" placeholder="customer onboarding, renewals, Salesforce, Zendesk, basic SQL"></textarea>
+<label>Dealbreakers - jobs with these get filtered out (comma-separated)</label>
+<textarea name="dealbreakers" rows="2" placeholder="on-site only, commission-only, travel over 25%"></textarea>
+<p style="margin-top:12px"><button class="btn">Save my profile</button></p>
+</form>
+<p class="muted">You can refine this anytime by editing <code>config/profile.yaml</code>
+- there's also a target-company watchlist in there worth filling in later (the app
+checks those companies' career pages directly, which is where the freshest jobs are).</p>"""
+    return _wizard_frame(2, "Tell it about you", inner, back="/welcome/key")
+
+
+@app.route("/welcome/voice", methods=["GET", "POST"])
+def welcome_voice():
+    built_msg = ""
+    if request.method == "POST":
+        pasted = request.form.get("samples", "").strip()
+        if pasted:
+            existing = sorted(VOICE_CORPUS_DIR.glob("pasted-*.txt"))
+            n = len(existing) + 1
+            (VOICE_CORPUS_DIR / f"pasted-{n:02d}.txt").write_text(pasted)
+        if request.form.get("build"):
+            from agent import voice
+            try:
+                voice.build_profile()
+                built_msg = ('<div class="banner">Done! Your writing style is learned. '
+                             'Drafts will now sound like you.</div>')
+            except SystemExit as e:
+                built_msg = f'<div class="banner warnbox">{esc(e)}</div>'
+        elif request.form.get("skip"):
+            return redirect("/welcome/tour")
+        elif pasted:
+            built_msg = '<div class="banner">Samples saved. Add more, or click "Learn my style".</div>'
+    n_files = len([p for p in VOICE_CORPUS_DIR.iterdir() if p.name != "README.md"]) \
+        if VOICE_CORPUS_DIR.exists() else 0
+    status = ("Your style is learned ✓" if VOICE_PROFILE_PATH.exists()
+              else f"{n_files} sample file(s) collected so far")
+    inner = f"""
+{built_msg}
+<p>Here's the clever part: the app studies <b>your own writing</b> - how you greet
+people, how you sign off, your rhythm, your favorite phrases - so its drafts sound
+like you and not like a robot. Recruiters delete robot messages; they answer human ones.</p>
+<p class="muted">Status: {esc(status)}</p>
+<form method="post">
+<label>Paste some of your writing (a few sent emails or longer texts; separate different
+messages with a line containing just ---)</label>
+<textarea name="samples" rows="8" placeholder="Hi Sara!&#10;Just wanted to say thanks again for covering my shift...&#10;---&#10;Hey! Sorry for the slow reply, this week got away from me..."></textarea>
+<p style="margin-top:12px">
+<button class="btn secondary">Save samples</button>
+<button class="btn" name="build" value="1">Learn my style</button>
+<button class="btn secondary" name="skip" value="1">Skip for now</button></p>
+</form>
+<p class="muted">20+ messages gives a good read; 50+ is great. The fastest bulk way is a
+Google Takeout export of your Sent mail dropped into the <code>voice/corpus</code> folder
+(instructions in that folder). Everything stays on this computer. Only your own writing,
+please - not other people's.</p>"""
+    return _wizard_frame(3, "Teach it your voice (optional but worth it)", inner,
+                         back="/welcome/profile")
+
+
+@app.route("/welcome/tour", methods=["GET", "POST"])
+def welcome_tour():
+    if request.method == "POST":
+        ONBOARDED_FLAG.parent.mkdir(exist_ok=True)
+        ONBOARDED_FLAG.write_text("done")
+        return redirect(url_for("dashboard"))
+    inner = """
+<p>Your daily rhythm, about an hour, ideally Tuesday to Thursday:</p>
+<ol>
+<li><b>Find new jobs</b>, then <b>Score jobs</b> (two clicks on the Today page - a couple of minutes, mostly waiting).</li>
+<li>Open the best matches. For 1-3 of them, click <b>Build my application kit</b>:
+you get honest resume-bullet suggestions and a short cover note to review, then you
+apply on the company's own site and click <b>I applied ✓</b>.</li>
+<li>The needle-mover: <b>Write a message</b> to 2-5 real people. For each job you
+apply to, message someone on the team (asking about their experience - never for a
+job), and the company's recruiter. The app drafts these in your voice; you spend two
+minutes finding one true detail about the person first - that detail roughly doubles replies.</li>
+<li>When people reply or you book calls, mark it on the <b>People</b> page. The app
+remembers who to nudge a week later (nudges get almost half of all replies).</li>
+</ol>
+<p>Why so few applications? Because the numbers say so: sprayed applications get ~2-5%
+responses, while a referral after a real conversation is 4-9x more likely to turn into
+a hire. Small, warm, and steady wins. The <b>momentum score</b> on the Today page
+(replies + calls + interviews) is your real progress bar - watch that, not the rejections.</p>
+<p>One more time, the golden rule: the app drafts, <b>you send</b>. Every draft has a
+checklist and a "read it aloud once" reminder.</p>
+<form method="post"><button class="btn">Take me to Today →</button></form>"""
+    return _wizard_frame(4, "How to actually use it", inner, back="/welcome/voice")
+
+
+def _test_deepseek_key(key):
+    import requests as rq
+    try:
+        r = rq.get("https://api.deepseek.com/models",
+                   headers={"Authorization": f"Bearer {key}"}, timeout=15)
+        if r.status_code == 200:
+            return True, "ok"
+        if r.status_code in (401, 403):
+            return False, "the key was rejected (wrong or inactive key)"
+        return False, f"unexpected response (HTTP {r.status_code})"
+    except rq.RequestException as e:
+        return False, f"couldn't reach DeepSeek ({e.__class__.__name__})"
+
+
+def _save_env_key(name, value):
+    lines = []
+    if ENV_PATH.exists():
+        lines = [l for l in ENV_PATH.read_text().splitlines()
+                 if not l.strip().startswith(f"{name}=")]
+    lines.append(f"{name}={value}")
+    ENV_PATH.write_text("\n".join(lines) + "\n")
+
+
+def _write_profile(f):
+    import yaml
+
+    def listify(s):
+        parts = [p.strip() for chunk in s.split("\n") for p in chunk.split(",")]
+        return [p for p in parts if p]
+
+    try:
+        floor = int(f["salary_floor"].replace(",", "").replace("$", "") or 0)
+    except ValueError:
+        floor = 0
+    profile = {
+        "name": f["name"],
+        "location": f["location"],
+        "timezone": f["timezone"],
+        "target_titles": listify(f["titles"]),
+        "seniority": f["seniority"] or "mid",
+        "remote_only": f["remote_only"] == "true",
+        "acceptable_locations": [],
+        "salary_floor_usd": floor,
+        "visa_sponsorship_needed": False,
+        "summary": f["summary"],
+        "skills": listify(f["skills"]),
+        "strong_matches": [],
+        "dealbreakers": listify(f["dealbreakers"]),
+        "links": {"linkedin": "", "portfolio": "", "other": []},
+        "watchlist": [],
+        "search_terms": listify(f["titles"]),
+    }
+    PROFILE_PATH.write_text(yaml.safe_dump(profile, sort_keys=False, allow_unicode=True))
 
 
 # ------------------------------------------------------------------ dashboard
@@ -433,8 +711,10 @@ folder, then click the button. The drafts will start sounding like you instead o
 <p>The AI key lives in the <code>.env</code> file next to this app. DeepSeek is the cheap default
 (about a dollar a month of usage at this volume): create a key at platform.deepseek.com, then put
 <code>DEEPSEEK_API_KEY=sk-...</code> in <code>.env</code> and restart the app.</p>
-<p>Windows quick start is in <code>docs/setup-windows.md</code>. The strategy and the research
-behind all of this: <code>docs/playbook.md</code>.</p></div>"""
+<p>Windows quick start is in <code>docs/setup-windows.md</code> (Mac/Linux users: same
+steps, just run <code>run-app.command</code> or <code>python3 -m agent gui</code>). The strategy
+and the research behind all of this: <code>docs/playbook.md</code>.</p>
+<p><a class="btn secondary" href="/welcome">Run the setup wizard again</a></p></div>"""
     return page("Help", body)
 
 
