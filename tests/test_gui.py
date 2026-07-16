@@ -176,3 +176,40 @@ def test_wizard_finish_sets_flag_and_unlocks(fresh_client):
 def test_onboarded_user_can_rerun_wizard(client):
     resp = client.get("/welcome")
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------- model switch
+
+def test_model_switch_saved(client, monkeypatch):
+    from gui import app as gui_app
+    monkeypatch.delenv("DEEPSEEK_MODEL", raising=False)
+    resp = client.post("/settings/model", data={"model": "deepseek-v4-pro"})
+    assert resp.status_code == 302
+    assert "DEEPSEEK_MODEL=deepseek-v4-pro" in gui_app.ENV_PATH.read_text()
+    import os
+    assert os.environ["DEEPSEEK_MODEL"] == "deepseek-v4-pro"
+
+
+def test_model_switch_rejects_unknown(client, monkeypatch):
+    from gui import app as gui_app
+    resp = client.post("/settings/model", data={"model": "gpt-99-evil"})
+    assert resp.status_code == 302
+    assert (not gui_app.ENV_PATH.exists()
+            or "gpt-99-evil" not in gui_app.ENV_PATH.read_text())
+
+
+def test_help_shows_current_model(client, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+    resp = client.get("/help")
+    assert b"higher-quality writing" in resp.data
+
+
+def test_wizard_key_saves_model_choice(fresh_client, monkeypatch):
+    from gui import app as gui_app
+    monkeypatch.setattr(gui_app, "_test_deepseek_key", lambda k: (True, "ok"))
+    resp = fresh_client.post("/welcome/key",
+                             data={"key": "sk-test123", "model": "deepseek-v4-pro"})
+    assert resp.status_code == 302
+    env = gui_app.ENV_PATH.read_text()
+    assert "DEEPSEEK_API_KEY=sk-test123" in env
+    assert "DEEPSEEK_MODEL=deepseek-v4-pro" in env

@@ -86,8 +86,11 @@ is the LLM.
 ## Piloting with DeepSeek
 
 Set `DEEPSEEK_API_KEY` in `.env`. The client speaks the OpenAI-compatible API at
-`https://api.deepseek.com` (model `deepseek-v4-flash` by default; set
-`DEEPSEEK_MODEL=deepseek-v4-pro` for higher-quality drafts). A full week of heavy
+`https://api.deepseek.com`. The model defaults to `deepseek-v4-flash` and is
+switchable three ways (highest precedence first): the `DEEPSEEK_MODEL` env var in
+`.env` (the app's Help page has a one-click Flash/Pro switch that writes this),
+the `llm.deepseek_model` key in `config/settings.yaml`, or the built-in default.
+Pro (`deepseek-v4-pro`) writes noticeably better drafts at ~3x the still-tiny cost. A full week of heavy
 use (hundreds of rankings, dozens of drafts) costs well under a dollar — and
 DeepSeek caches identical prompt prefixes automatically, so repeated ranking runs
 bill most input at the ~98%-discounted cache-hit rate. The prompts in this repo

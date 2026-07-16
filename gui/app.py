@@ -175,6 +175,10 @@ def welcome_key():
             if ok:
                 _save_env_key("DEEPSEEK_API_KEY", key)
                 os.environ["DEEPSEEK_API_KEY"] = key
+                model = request.form.get("model", "")
+                if model in _MODEL_LABELS:
+                    _save_env_key("DEEPSEEK_MODEL", model)
+                    os.environ["DEEPSEEK_MODEL"] = model
                 return redirect("/welcome/profile")
             msg = f'<div class="banner warnbox">That key didn\'t work: {esc(detail)} - double-check and try again, or skip for now.</div>'
         else:
@@ -196,6 +200,11 @@ messages. It's pay-as-you-go and extremely cheap - this app uses well under
 <form method="post">
 <label>Paste your key here</label>
 <input name="key" placeholder="sk-..." autocomplete="off">
+<label>Model (changeable later on the Help page)</label>
+<select name="model">
+<option value="deepseek-v4-flash" selected>Flash - the cheap default</option>
+<option value="deepseek-v4-pro">Pro - better writing, ~3x the (still tiny) cost</option>
+</select>
 <p style="margin-top:12px">
 <button class="btn">Test &amp; save</button>
 <button class="btn secondary" name="skip" value="1">Skip for now</button></p>
@@ -732,7 +741,32 @@ def people_event(cid):
     return redirect(url_for("people"))
 
 
-# ------------------------------------------------------------------ help
+# ------------------------------------------------------------------ help & settings
+
+_MODEL_LABELS = {
+    "deepseek-v4-flash": "DeepSeek Flash (cheap default)",
+    "deepseek-v4-pro": "DeepSeek Pro (higher-quality writing)",
+}
+
+
+def _current_model():
+    from agent import llm
+    return llm.deepseek_model()
+
+
+def _current_model_label():
+    m = _current_model()
+    return _MODEL_LABELS.get(m, m)
+
+
+@app.route("/settings/model", methods=["POST"])
+def settings_model():
+    model = request.form.get("model", "")
+    if model in _MODEL_LABELS:
+        _save_env_key("DEEPSEEK_MODEL", model)
+        os.environ["DEEPSEEK_MODEL"] = model
+    return redirect(url_for("help_page"))
+
 
 @app.route("/help")
 def help_page():
@@ -754,6 +788,18 @@ More than that becomes spray, and spray doesn't get replies. Replies and calls a
 <p>Put 20+ examples of your own writing (sent emails, longer texts) in the <code>voice/corpus/</code>
 folder, then click the button. The drafts will start sounding like you instead of like a bot.</p>
 <form method="post" action="/run/voice"><button class="btn" {"disabled" if _task["running"] else ""}>Learn my writing style</button></form></div>
+<div class="card"><h2>AI model</h2>
+<p>Currently using: <b>{esc(_current_model_label())}</b></p>
+<form method="post" action="/settings/model">
+<label>Switch model</label>
+<select name="model">
+<option value="deepseek-v4-flash" {"selected" if _current_model() == "deepseek-v4-flash" else ""}>Flash - the cheap default (great for scoring, fine for drafts)</option>
+<option value="deepseek-v4-pro" {"selected" if _current_model() == "deepseek-v4-pro" else ""}>Pro - noticeably better writing, ~3x the (still tiny) cost</option>
+</select>
+<p style="margin-top:10px"><button class="btn secondary">Save choice</button></p>
+</form>
+<p class="muted">Tip: if drafts feel flat even after learning your writing style, try Pro -
+at this usage it's the difference between pennies and slightly more pennies per month.</p></div>
 <div class="card"><h2>Setup notes</h2>
 <p>The AI key lives in the <code>.env</code> file next to this app. DeepSeek is the cheap default
 (about a dollar a month of usage at this volume): create a key at platform.deepseek.com, then put

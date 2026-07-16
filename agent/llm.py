@@ -28,6 +28,22 @@ class LLMError(RuntimeError):
     pass
 
 
+def deepseek_model() -> str:
+    """Model resolution: DEEPSEEK_MODEL env var > config/settings.yaml llm section
+    > deepseek-v4-flash. (deepseek-chat is deprecated as of 2026-07-24.)"""
+    env = os.getenv("DEEPSEEK_MODEL")
+    if env:
+        return env
+    try:
+        from .settings import load_settings
+        configured = (load_settings().get("llm") or {}).get("deepseek_model")
+        if configured:
+            return configured
+    except Exception:
+        pass
+    return "deepseek-v4-flash"
+
+
 def provider() -> str:
     if os.getenv("MOCK_LLM"):
         return "mock"
@@ -111,8 +127,7 @@ def complete(system: str, user: str, max_tokens: int = 2000, temperature: float 
 
     if prov == "deepseek":
         base, key = "https://api.deepseek.com", os.environ["DEEPSEEK_API_KEY"]
-        # deepseek-chat is deprecated as of 2026-07-24; v4-flash is the cheap default
-        model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+        model = deepseek_model()
     else:
         base, key = "https://api.openai.com", os.environ["OPENAI_API_KEY"]
         model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")

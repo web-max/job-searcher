@@ -1,5 +1,13 @@
 # Behavior and safety settings.
 
+llm:
+  # Which DeepSeek model to use.
+  #   deepseek-v4-flash - the cheap default; great for ranking, fine for drafts
+  #   deepseek-v4-pro   - ~3x the (still tiny) cost, noticeably better writing
+  # The DEEPSEEK_MODEL env var (or the switch on the app's Help page, which
+  # sets it in .env) overrides this file.
+  deepseek_model: "deepseek-v4-flash"
+
 volumes:
   # Quality-first caps. These are well under any platform limit on purpose.
   max_new_outreach_per_day: 5
