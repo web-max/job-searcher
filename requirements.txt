@@ -2,5 +2,6 @@ requests>=2.31
 PyYAML>=6.0
 python-dotenv>=1.0
 Flask>=3.0
-# Optional, only for assisted apply (form filling):
-#   pip install playwright && playwright install chromium
+# Optional, only for assisted apply (form filling). Patchright is a
+# stealth-patched Playwright drop-in (avoids anti-bot false positives):
+#   pip install patchright && patchright install chromium

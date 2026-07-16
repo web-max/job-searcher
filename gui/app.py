@@ -934,7 +934,7 @@ browser on the company's application form (Greenhouse, Lever, Ashby - never Link
 fills it from your profile and that job's application kit, then <b>stops on the filled
 form</b>. It never presses submit, and it never answers demographic or salary questions -
 you check every field, finish the rest, and submit it yourself. One-time setup in a
-terminal: <code>pip install playwright &amp;&amp; playwright install chromium</code></p></div>
+terminal: <code>pip install patchright &amp;&amp; patchright install chromium</code></p></div>
 <div class="card"><h2>Updates</h2>
 <p>Version: <b>{esc(_git_version() or "not a git install")}</b></p>
 <form method="post" action="/settings/update"

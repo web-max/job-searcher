@@ -189,11 +189,22 @@ def run(job_id, settings, profile, url=None):
         print("note: not a recognized ATS (Greenhouse/Lever/Ashby/Workable/"
               "Workday). The posting page may not be the application form - "
               "if nothing gets filled, pass the real form url with --url.")
+    # Patchright is a stealth-patched Playwright drop-in: same API, but it
+    # closes the CDP/automation fingerprint leaks that make anti-bot walls
+    # (Cloudflare etc.) false-positive on a genuinely human-supervised session.
     try:
-        from playwright.sync_api import sync_playwright
+        from patchright.sync_api import sync_playwright
+        engine = "patchright"
     except ImportError:
-        sys.exit("playwright is not installed. One-time setup:\n"
-                 "  pip install playwright\n  playwright install chromium")
+        try:
+            from playwright.sync_api import sync_playwright
+            engine = "playwright"
+            print("note: running on plain playwright. For a lower chance of "
+                  "tripping bot detection, install the stealth drop-in:\n"
+                  "  pip install patchright && patchright install chromium")
+        except ImportError:
+            sys.exit("no browser engine installed. One-time setup:\n"
+                     "  pip install patchright\n  patchright install chromium")
 
     cover = latest_cover_note(job_id)
     if not cover:
@@ -201,7 +212,13 @@ def run(job_id, settings, profile, url=None):
               f"will be left blank (run: python -m agent tailor --job {job_id})")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        # Real installed Chrome beats bundled Chromium for looking like a
+        # normal browser; fall back to the bundled one if Chrome isn't there.
+        try:
+            browser = p.chromium.launch(headless=False, channel="chrome")
+        except Exception:
+            browser = p.chromium.launch(headless=False)
+        print(f"browser engine: {engine}")
         page = browser.new_page()
         page.goto(target, wait_until="domcontentloaded")
         page.wait_for_timeout(2500)  # let ATS scripts render the form
