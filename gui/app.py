@@ -791,10 +791,24 @@ def _run_update():
 
 
 def _restart_app():
-    # sys.argv[0] under `python -m agent` is the __main__.py path, which can't be
-    # re-executed directly (relative imports) - rebuild the -m invocation instead
-    os.chdir(ROOT)
-    os.execv(sys.executable, [sys.executable, "-m", "agent"] + sys.argv[1:])
+    # A straight os.execv races the dying server for the port ("Address already
+    # in use"). Instead: spawn a detached child that waits for this process to
+    # exit and release the socket, then starts the app fresh; exit immediately.
+    # (sys.argv[0] under `python -m agent` is the __main__.py path, so the -m
+    # invocation is rebuilt explicitly.)
+    import subprocess
+    relaunch = [sys.executable, "-m", "agent"] + sys.argv[1:]
+    helper = ("import time,os,sys; time.sleep(2); os.chdir(sys.argv[1]); "
+              "os.execv(sys.argv[2], sys.argv[2:])")
+    kwargs = {}
+    if os.name == "nt":
+        DETACHED_PROCESS, CREATE_NEW_PROCESS_GROUP = 0x00000008, 0x00000200
+        kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen([sys.executable, "-c", helper, str(ROOT)] + relaunch,
+                     cwd=str(ROOT), **kwargs)
+    os._exit(0)
 
 
 @app.route("/settings/update", methods=["POST"])
