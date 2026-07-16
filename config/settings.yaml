@@ -1,0 +1,27 @@
+# Behavior and safety settings.
+
+volumes:
+  # Quality-first caps. These are well under any platform limit on purpose.
+  max_new_outreach_per_day: 5
+  max_connection_requests_per_week: 15
+  max_applications_per_day: 5
+  followup_after_days: 6          # bump an unanswered message after this many days
+  max_followups: 2                # then let it go
+
+ranking:
+  min_score_to_surface: 65        # jobs below this don't show up in reports
+  batch_size: 12                  # postings per LLM ranking call
+
+discovery:
+  max_age_days: 21                # ignore postings older than this
+  sources:                        # toggle sources on/off
+    remotive: true
+    remoteok: true
+    weworkremotely: true
+    himalayas: true
+    watchlist_boards: true
+    hn_who_is_hiring: false       # enable for tech roles
+
+humanizer:
+  max_rewrite_passes: 2           # lint -> rewrite loop budget
+  fail_on: ["high"]               # severities that block a draft: high | medium | low

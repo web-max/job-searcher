@@ -1,0 +1,67 @@
+# Copy to config/profile.yaml and fill in for the real job seeker.
+# The ranker and every draft reads this file, so make it honest and specific.
+
+name: "Jane Example"
+pronouns: "she/her"
+location: "Austin, TX"
+timezone: "US Central (UTC-6)"
+
+# What she's looking for
+target_titles:
+  - "Customer Success Manager"
+  - "Account Manager"
+  - "Client Onboarding Specialist"
+seniority: "mid"            # junior | mid | senior
+remote_only: true
+acceptable_locations: []     # extra OK locations if not remote-only, e.g. ["Austin, TX"]
+salary_floor_usd: 65000
+visa_sponsorship_needed: false
+
+# Background — used for ranking and tailoring. Plain sentences beat buzzwords.
+summary: >
+  Five years in customer-facing roles: two years as a CSM at a 200-person SaaS
+  company (owned a $1.2M book of business, 94% gross retention), before that
+  three years in hospitality management. Strong at onboarding, renewals, and
+  turning angry customers into references. Comfortable with Salesforce,
+  Gainsight, Zendesk, and basic SQL.
+
+skills:
+  - customer onboarding
+  - renewals and retention
+  - Salesforce
+  - Gainsight
+  - Zendesk
+  - basic SQL
+  - QBR presentations
+
+# Things that should raise a job's score
+strong_matches:
+  - "SaaS"
+  - "B2B customer success"
+  - "onboarding"
+
+# Hard filters — jobs matching these are dropped before ranking
+dealbreakers:
+  - "on-site only"
+  - "requires travel > 25%"
+  - "commission-only"
+
+# Proof-of-work links to weave into applications/outreach when relevant
+links:
+  linkedin: "https://linkedin.com/in/janeexample"
+  portfolio: ""
+  other: []
+
+# Target companies (their career pages get polled directly).
+# board: greenhouse | lever | ashby ; slug: the company's token in its job-board URL.
+#   greenhouse: boards.greenhouse.io/<slug>      lever: jobs.lever.co/<slug>
+#   ashby:      jobs.ashbyhq.com/<slug>
+watchlist:
+  - {name: "Example Co", board: "greenhouse", slug: "exampleco"}
+  # - {name: "Zapier", board: "greenhouse", slug: "zapier"}
+  # - {name: "Deel", board: "ashby", slug: "deel"}
+
+# Search terms for the public job board APIs
+search_terms:
+  - "customer success"
+  - "account manager"

@@ -1,0 +1,10 @@
+.env
+config/profile.yaml
+data/
+outbox/
+voice/corpus/*
+!voice/corpus/README.md
+voice/voice_profile.md
+voice/whitelist.json
+__pycache__/
+*.pyc
