@@ -39,8 +39,24 @@ def _get(url: str, **kw):
 
 
 def _strip_html(text: str) -> str:
-    text = re.sub(r"<[^>]+>", " ", text or "")
-    return re.sub(r"\s+", " ", html.unescape(text)).strip()
+    # unescape BEFORE stripping (twice, for double-escaped payloads like
+    # Greenhouse's &lt;div&gt; content), otherwise escaped tags survive the regex
+    # and get unescaped into literal markup afterwards
+    text = html.unescape(html.unescape(text or ""))
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _fix_mojibake(text: str) -> str:
+    """Repair double-encoded UTF-8 from sloppy sources ('SÃ£o Paulo' -> 'São Paulo')."""
+    if "Ã" in text or "â€" in text:
+        try:
+            repaired = text.encode("latin-1").decode("utf-8")
+            if "Ã" not in repaired:
+                return repaired
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    return text
 
 
 def _job(source, company, title, url, location="", description="", posted_at="", salary=""):
@@ -48,11 +64,11 @@ def _job(source, company, title, url, location="", description="", posted_at="",
     return {
         "id": jid,
         "source": source,
-        "company": (company or "").strip(),
-        "title": (title or "").strip(),
+        "company": _fix_mojibake((company or "").strip()),
+        "title": _fix_mojibake((title or "").strip()),
         "url": url,
-        "location": (location or "").strip(),
-        "description": _strip_html(description)[:6000],
+        "location": _fix_mojibake((location or "").strip()),
+        "description": _fix_mojibake(_strip_html(description)[:6000]),
         "posted_at": posted_at or "",
         "salary": salary or "",
     }
@@ -111,27 +127,39 @@ def fetch_remoteok(terms):
 
 
 def fetch_weworkremotely(terms):
-    try:
-        import feedparser
-    except ImportError:
-        print("  warn: feedparser not installed, skipping WWR", file=sys.stderr)
+    """Parse the WWR RSS feed with the stdlib (feedparser's sgmllib3k dependency
+    fails to build on some systems, and plain RSS doesn't need it)."""
+    import xml.etree.ElementTree as ET
+    from email.utils import parsedate_to_datetime
+
+    resp = _get("https://weworkremotely.com/remote-jobs.rss")
+    if not resp:
         return []
-    feed = feedparser.parse("https://weworkremotely.com/remote-jobs.rss")
+    try:
+        root = ET.fromstring(resp.content)
+    except ET.ParseError as e:
+        print(f"  warn: WWR RSS parse failed: {e}", file=sys.stderr)
+        return []
     jobs = []
-    for e in feed.entries:
-        title = e.get("title", "")  # format: "Company: Job Title"
+    for item in root.iter("item"):
+        def field(tag):
+            el = item.find(tag)
+            return (el.text or "") if el is not None else ""
+        title = field("title")  # format: "Company: Job Title"
         company, _, role = title.partition(":")
-        blob = f"{title} {e.get('summary','')}"
-        if not _matches_terms(blob, terms):
+        summary = field("description")
+        if not _matches_terms(f"{title} {summary}", terms):
             continue
         posted = ""
-        if e.get("published_parsed"):
-            posted = time.strftime("%Y-%m-%d", e.published_parsed)
+        if field("pubDate"):
+            try:
+                posted = parsedate_to_datetime(field("pubDate")).strftime("%Y-%m-%d")
+            except (ValueError, TypeError):
+                posted = ""
+        region = field("{https://weworkremotely.com}region") or field("region") or "Remote"
         jobs.append(_job(
-            "weworkremotely", company, role.strip() or title, e.get("link", ""),
-            location=e.get("region", "Remote"),
-            description=e.get("summary", ""),
-            posted_at=posted,
+            "weworkremotely", company, role.strip() or title, field("link"),
+            location=region, description=summary, posted_at=posted,
         ))
     return jobs
 
@@ -163,8 +191,14 @@ def fetch_himalayas(terms, pages=10):
         salary = ""
         if j.get("minSalary") and j.get("maxSalary"):
             salary = f"{j.get('currency','')} {j['minSalary']}-{j['maxSalary']}".strip()
+        company = j.get("companyName")
+        if isinstance(company, dict):
+            company = company.get("name", "")
+        if not company or str(company).strip().lower() == "name":
+            # field occasionally comes through junk; recover from the slug
+            company = (j.get("companySlug") or "").replace("-", " ").title()
         jobs.append(_job(
-            "himalayas", j.get("companyName"), j.get("title"),
+            "himalayas", company, j.get("title"),
             j.get("applicationLink") or j.get("guid", ""),
             location=", ".join(j.get("locationRestrictions") or []) or "Remote",
             description=desc,
@@ -218,14 +252,20 @@ def fetch_watchlist(watchlist):
 
 
 def fetch_hn_whoishiring(terms):
-    """Latest 'Ask HN: Who is hiring?' thread via the Algolia API."""
+    """Latest 'Ask HN: Who is hiring?' thread via the Algolia API.
+
+    The author_whoishiring tag is essential - a bare story search fuzzily
+    matches unrelated Ask HN posts."""
     resp = _get(
         "https://hn.algolia.com/api/v1/search_by_date",
-        params={"query": "Ask HN: Who is hiring?", "tags": "story", "hitsPerPage": 1},
+        params={"query": "Ask HN: Who is hiring?",
+                "tags": "story,author_whoishiring", "hitsPerPage": 1},
     )
     if not resp or not resp.json().get("hits"):
         return []
     story = resp.json()["hits"][0]
+    if not (story.get("title") or "").startswith("Ask HN: Who is hiring?"):
+        return []
     resp = _get(f"https://hn.algolia.com/api/v1/items/{story['objectID']}")
     if not resp:
         return []
@@ -234,12 +274,16 @@ def fetch_hn_whoishiring(terms):
         text = _strip_html(c.get("text") or "")
         if len(text) < 60 or not _matches_terms(text, terms):
             continue
-        first_line = text.split(".")[0][:120]
-        company = first_line.split("|")[0].strip()[:60]
+        # convention: "Company | Role | Location | ..." on the first line
+        first_line = text.splitlines()[0] if "\n" in text else text
+        parts = [p.strip() for p in first_line.split("|")]
+        company = parts[0].split(".")[0][:60]
+        title = (parts[1] if len(parts) > 1 else first_line.split(".")[0])[:120]
         jobs.append(_job(
-            "hn_whoishiring", company, first_line,
+            "hn_whoishiring", company, title,
             f"https://news.ycombinator.com/item?id={c['id']}",
-            location="see post", description=text,
+            location=parts[2][:80] if len(parts) > 2 else "see post",
+            description=text,
             posted_at=(c.get("created_at") or "")[:10],
         ))
     return jobs

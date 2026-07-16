@@ -74,6 +74,9 @@ FLAG_PHRASES = [
     "dynamic environment", "circle back", "touch base",
     "moreover,", "furthermore,", "additionally,", "notably,",
     "reach out to explore", "i wanted to reach out",
+    # flattery that fires anywhere, not just as an opener
+    "i was so impressed", "truly inspiring", "your incredible journey",
+    "someone of your caliber", "i admire your",
 ]
 
 WATCH_WORDS = [
@@ -88,6 +91,8 @@ WATCH_PHRASES = [
     "align with", "resonate with", "serves as", "functions as",
     "contributing to", "setting the stage for", "marking a shift",
     "when it comes to", "at the end of the day", "key role",
+    "would love to connect", "let me know your thoughts",
+    "open to a quick chat", "happy to chat",
 ]
 
 # Regexes for structural tells live in humanize.py.

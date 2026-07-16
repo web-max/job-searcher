@@ -80,8 +80,12 @@ is the LLM.
 ## Piloting with DeepSeek
 
 Set `DEEPSEEK_API_KEY` in `.env`. The client speaks the OpenAI-compatible API at
-`https://api.deepseek.com` (model `deepseek-chat`). A full week of heavy use
-(hundreds of rankings, dozens of drafts) costs well under a dollar.
+`https://api.deepseek.com` (model `deepseek-v4-flash` by default; set
+`DEEPSEEK_MODEL=deepseek-v4-pro` for higher-quality drafts). A full week of heavy
+use (hundreds of rankings, dozens of drafts) costs well under a dollar — and
+DeepSeek caches identical prompt prefixes automatically, so repeated ranking runs
+bill most input at the ~98%-discounted cache-hit rate. The prompts in this repo
+are already ordered stable-prefix-first to exploit that.
 
 ## The strategy (short version)
 

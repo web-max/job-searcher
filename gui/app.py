@@ -92,9 +92,12 @@ label { display:block; margin:10px 0 3px; font-size:.92rem; color:var(--muted); 
 
 def page(title, body, refresh=False):
     meta = '<meta http-equiv="refresh" content="3">' if refresh else ""
+    favicon = ('<link rel="icon" href="data:image/svg+xml,'
+               '%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E'
+               '%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%8C%B1%3C/text%3E%3C/svg%3E">')
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{html.escape(title)}</title>{meta}{STYLE}</head><body>
+<title>{html.escape(title)}</title>{meta}{favicon}{STYLE}</head><body>
 <nav><span class="brand">Job Search HQ</span>
 <a href="/">Today</a> <a href="/jobs">Jobs</a> <a href="/outbox">Drafts to send</a>
 <a href="/outreach">Write a message</a> <a href="/people">People</a> <a href="/help">Help</a></nav>
@@ -247,7 +250,8 @@ def job_event(job_id):
     ev = request.form.get("event")
     if ev == "applied":
         tracker.log_event("applied", job_id=job_id)
-    elif ev == "dropped":
+        return redirect(url_for("job_detail", job_id=job_id))
+    if ev == "dropped":
         tracker.set_status(job_id, "dropped")
     return redirect(url_for("jobs"))
 
@@ -379,7 +383,8 @@ def people():
         rows = [dict(r) for r in c.execute(
             "SELECT * FROM contacts ORDER BY updated_at DESC LIMIT 100")]
     trs = "".join(
-        f'<tr><td>{esc(c["name"])}</td><td class="muted">{esc(c["role"] or "")} @ {esc(c["company"] or "")}</td>'
+        f'<tr><td>{esc(c["name"])}</td>'
+        f'<td class="muted">{esc(" @ ".join(x for x in (c["role"], c["company"]) if x))}</td>'
         f'<td><span class="pill">{esc(c["status"])}</span></td>'
         f'<td><form method="post" action="/people/{c["id"]}/event">'
         f'<button class="btn secondary" name="event" value="replied">replied ✓</button> '

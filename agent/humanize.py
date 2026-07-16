@@ -36,7 +36,11 @@ def _load_whitelist() -> set:
 def lint(text: str, kind: str = "message") -> list:
     """Return a list of findings: {severity, rule, detail}."""
     findings = []
-    lower = text.lower()
+    # normalize curly apostrophes/quotes so pasted LLM output can't dodge the
+    # contraction-based regexes; the curly-quotes check runs on the raw text
+    norm = (text.replace("’", "'").replace("‘", "'")
+                .replace("“", '"').replace("”", '"'))
+    lower = norm.lower()
     whitelist = _load_whitelist()
 
     def hit(severity, rule, detail):
@@ -46,12 +50,18 @@ def lint(text: str, kind: str = "message") -> list:
     for p in tells.BAN_PHRASES:
         if p in lower:
             hit("high", "banned-phrase", f'"{p}"')
+    flag_hits = 0
     for w in tells.FLAG_WORDS:
         if w not in whitelist and re.search(rf"\b{re.escape(w)}\b", lower):
             hit("medium", "flag-word", f'"{w}"')
+            flag_hits += 1
     for p in tells.FLAG_PHRASES:
         if p not in whitelist and p in lower:
             hit("medium", "flag-phrase", f'"{p}"')
+            flag_hits += 1
+    if flag_hits >= 3:
+        hit("high", "flag-pileup",
+            f"{flag_hits} strong-tell words/phrases co-occur; near-certain LLM draft")
     watch_hits = [w for w in tells.WATCH_WORDS
                   if w not in whitelist and re.search(rf"\b{re.escape(w)}\b", lower)]
     watch_hits += [p for p in tells.WATCH_PHRASES if p not in whitelist and p in lower]
@@ -59,9 +69,12 @@ def lint(text: str, kind: str = "message") -> list:
         hit("low", "watch-words", f"several weak tells co-occur: {watch_hits}")
 
     # --- punctuation & typography
-    em_dashes = text.count("—") + text.count(" - ")
     if "—" in text:
         hit("high", "em-dash", f"{text.count(chr(0x2014))} em dash(es); use a comma, period, or parenthesis")
+    dash_surrogates = len(re.findall(r"\S -{1,2} \S| -- ", text))
+    if dash_surrogates >= 2 and "—" not in text:
+        hit("medium", "dash-surrogate",
+            f"{dash_surrogates} spaced/double hyphens used as em dashes")
     if re.search(r"[“”‘’]", text):
         hit("medium", "curly-quotes", "smart quotes suggest pasted LLM output; use straight quotes")
     if re.search(r"\*\*|^#{1,6}\s|^\s*[-*]\s", text, re.M) and kind != "notes":
@@ -75,21 +88,36 @@ def lint(text: str, kind: str = "message") -> list:
     if re.search(r"\b(not|isn'?t|aren'?t|wasn'?t) (just|only|merely|about)\b[^.!?]{0,80}"
                  r"\b(but|it'?s|they'?re|this is)\b", lower):
         hit("high", "contrastive-negation", '"not just X, (but) Y" construction - the most damning tell')
-    triads = re.findall(r"\b\w+, \w+,? and \w+\b", text)
+    if re.search(r"\bless about\b[^.!?]{0,80}\b(and )?more about\b", lower):
+        hit("high", "contrastive-negation", '"less about X, more about Y" variant')
+    if re.search(r"\b(not|isn'?t|aren'?t|wasn'?t) (just|only|merely)\b[^.!?]{0,80}[.!?]\s+"
+                 r"(it'?s|it is|this is|they'?re)\b", lower):
+        hit("high", "contrastive-negation", '"It isn\'t just X. It\'s Y." split across sentences')
+    triads = re.findall(r"\b\w+, \w+,? and \w+\b", norm)
     if len(triads) > 1:
-        hit("medium", "rule-of-three", f"{len(triads)} triads; keep at most one: {triads}")
+        hit("high" if len(triads) >= 2 else "medium",
+            "rule-of-three", f"{len(triads)} triads; keep at most one: {triads}")
     if re.search(r",\s+(highlighting|ensuring|underscoring|reflecting|showcasing|demonstrating|emphasizing)\b", lower):
         hit("medium", "ing-tail", "sentence ends in an '-ing' analysis tail")
-    for opener in ("i hope you", "i trust you", "i was so impressed", "i admire your incredible"):
-        if lower.lstrip().startswith(opener):
+    # strip a leading greeting ("Hi Jordan,") so openers can't hide behind it
+    body = re.sub(r"^\s*(hi|hey|hello|dear|good (morning|afternoon))\b[^,!\n]{0,40}[,!\n]\s*",
+                  "", lower.lstrip())
+    for opener in ("i hope you", "i trust you", "i was so impressed", "i admire your",
+                   "i've been so inspired", "your journey"):
+        if body.startswith(opener):
             hit("medium", "pleasantry-opener", "first sentence should contain a specific detail, not a pleasantry")
+    if len(re.findall(r"^[A-Z][\w /-]{0,25}:\s", text, re.M)) >= 2:
+        hit("medium", "colon-list", "label-colon list pattern (bullet-speak in prose)")
 
-    # --- rhythm
-    sents = _sentences(text)
+    # --- rhythm (relative measure; short-sentence writers are exempt)
+    sents = _sentences(norm)
     if len(sents) >= 4:
         lengths = [len(s.split()) for s in sents]
-        if statistics.pstdev(lengths) < 3.5:
-            hit("medium", "uniform-rhythm",
+        mean = statistics.mean(lengths)
+        std = statistics.pstdev(lengths)
+        if mean >= 12 and std / mean < 0.3:
+            hit("high" if (len(sents) >= 5 and std < 2.0) else "medium",
+                "uniform-rhythm",
                 f"sentence lengths too uniform ({lengths}); mix short and long")
 
     # --- content checks (heuristic)
@@ -97,7 +125,7 @@ def lint(text: str, kind: str = "message") -> list:
         hit("medium", "vague-attribution", "unattributed 'studies show' style claim")
     if re.search(r"\[(?!\d)[^\]]{2,30}\]|\{[^}]{2,30}\}", text):
         hit("high", "placeholder", "unfilled placeholder bracket left in draft")
-    if re.search(r"let me know if (you'?re )?interested", lower):
+    if re.search(r"let me know if\b[^.!?]{0,40}\binterest", lower):
         hit("medium", "weak-cta", 'replace "let me know if interested" with a concrete, single-question ask')
 
     # --- length norms by message type
@@ -117,7 +145,10 @@ def format_findings(findings: list) -> str:
 
 
 def blocking(findings: list, fail_on=("high",)) -> bool:
-    return any(f["severity"] in fail_on for f in findings)
+    if any(f["severity"] in fail_on for f in findings):
+        return True
+    # a pile of medium tells is as damning as one high one
+    return sum(1 for f in findings if f["severity"] == "medium") >= 3
 
 
 REWRITE_SYSTEM = """You edit drafts of short job-search messages so they read like the
@@ -126,8 +157,16 @@ linter, and the sender's voice profile. Fix ONLY the flagged problems plus anyth
 sounds like a language model wrote it. Keep the message's facts, ask, and length. Keep
 the sender's voice: her greeting and sign-off habits, her rhythm, her level of casualness.
 Plain words. Vary sentence length. No em dashes. Never use "not just X, but Y"
-constructions. Do not add new claims or compliments. Return only the rewritten message,
-no commentary."""
+constructions. Do not add new claims or compliments.
+
+Also review for what the linter cannot see mechanically:
+- The swap test: if the message would still make sense sent to a different person or
+  company, it is too generic - sharpen the existing specific details (never invent new ones).
+- Lead with the point; delete hedging preambles ("I just wanted to", "I know you're busy but").
+- Greeting and sign-off must match the voice profile's measured habits exactly.
+- Paragraphs should not all be the same length.
+
+Return only the rewritten message, no commentary."""
 
 
 def rewrite(text: str, findings: list, voice_profile: str, kind: str = "message") -> str:

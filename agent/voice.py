@@ -57,6 +57,8 @@ def _from_mbox(path) -> list:
 
 def load_corpus() -> list:
     docs = []
+    if not VOICE_CORPUS_DIR.is_dir():
+        return docs
     for path in sorted(VOICE_CORPUS_DIR.iterdir()):
         if path.name.startswith(".") or path.name == "README.md":
             continue
@@ -75,8 +77,21 @@ def _sentences(text):
 
 
 GREETING_RE = re.compile(r"^(hi|hey|hello|dear|good morning|good afternoon|yo)\b[^\n,!]*[,!]?", re.I)
+
+# words too common in general English to count as a personal verbal tic
+_COMMON_WORDS = {
+    "about", "after", "again", "along", "always", "around", "because", "before",
+    "being", "could", "doing", "email", "every", "first", "getting", "going",
+    "gonna", "great", "happy", "having", "hello", "little", "maybe", "might",
+    "morning", "never", "other", "people", "place", "please", "pretty", "really",
+    "right", "should", "since", "something", "sorry", "still", "thanks", "there",
+    "these", "thing", "things", "think", "though", "thought", "through", "today",
+    "tomorrow", "totally", "trying", "wanted", "weekend", "where", "which",
+    "while", "would", "yesterday",
+}
 SIGNOFF_RE = re.compile(
-    r"\b(best|thanks so much|thanks|thank you|cheers|talk soon|warmly|sincerely|xo+|take care)[,!.]?\s*$", re.I)
+    r"\b(best|thanks so much|thanks|thank you|cheers|talk soon|warmly|sincerely"
+    r"|xo+|x{1,3}|take care|love you)[,!.]?\s*$", re.I)
 
 
 def analyze(docs: list) -> dict:
@@ -103,21 +118,34 @@ def analyze(docs: list) -> dict:
         words = d.lower().split()
         total_words += len(words)
         contractions += len(re.findall(r"\b\w+'(s|t|re|ve|ll|d|m)\b", d.lower()))
-        # 2-3 word phrases she repeats
-        tokens = re.findall(r"[a-z']+", d.lower())
-        for n in (2, 3):
+        # 1-3 word phrases she repeats - mined from the message BODY only,
+        # so greeting/sign-off/name boilerplate doesn't drown real pet phrases
+        lines = d.strip().splitlines()
+        body_lines = lines[:]
+        if body_lines and GREETING_RE.match(body_lines[0].strip()):
+            body_lines = body_lines[1:]
+        while body_lines and (SIGNOFF_RE.search(body_lines[-1].strip())
+                              or len(body_lines[-1].split()) <= 2):
+            body_lines = body_lines[:-1]
+        tokens = re.findall(r"[a-z']+", "\n".join(body_lines).lower())
+        for n in (1, 2, 3):
             for i in range(len(tokens) - n + 1):
-                phrase_counter[" ".join(tokens[i:i + n])] += 1
+                gram = " ".join(tokens[i:i + n])
+                if n == 1 and (len(gram) < 5 or gram in _COMMON_WORDS):
+                    continue
+                phrase_counter[gram] += 1
 
     pet_phrases = [p for p, c in phrase_counter.most_common(200)
                    if c >= max(3, len(docs) // 4) and not all(w in
                    {"the", "a", "to", "of", "and", "in", "i", "you", "it", "is", "that", "for"}
                    for w in p.split())][:12]
 
-    # which flag-list words does she actually use?
+    # which flag-list words and phrases does she actually use?
     corpus_text = " ".join(docs).lower()
     whitelist = [w for w in tells.FLAG_WORDS + tells.WATCH_WORDS
                  if re.search(rf"\b{re.escape(w)}\b", corpus_text)]
+    whitelist += [p for p in tells.FLAG_PHRASES + tells.WATCH_PHRASES
+                  if p in corpus_text]
     if emoji_count / max(len(docs), 1) > 0.3:
         whitelist.append("emoji")
     if ";" in corpus_text:

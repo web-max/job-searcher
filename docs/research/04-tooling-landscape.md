@@ -135,6 +135,8 @@ Assumptions: ranking a job ≈ 1.5K input + 0.3K output; a tailored draft ≈ 3K
 
 **Takeaway:** cost is negligible either way. Use **DeepSeek v4-flash for bulk ranking** and a stronger model (Claude, or v4-pro) **for the 50 drafts** where writing quality matters. Prompt-cache the stable rubric/profile prefix.
 
+**DeepSeek caching mechanics (verified 2026-07 from api-docs.deepseek.com):** context caching is automatic (on by default, no request flags): exact prefix match from token 0, 64-token minimum unit, unused cache expires in hours-to-days; responses report `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` so hits are verifiable. Keep the system prompt + rubric + profile byte-identical at the top and put the per-job posting last; never lead with timestamps or run IDs. Legacy model names `deepseek-chat`/`deepseek-reasoner` stop resolving 2026-07-24 — use `deepseek-v4-flash`/`deepseek-v4-pro`. Prior art worth copying: **Aider** (`--cache-prompts`, orders context stable-first: system prompt → read-only files → repo map → editable files) and Cline/Roo Code both run well on DeepSeek; any of them can act as a cheap Claude Code substitute for piloting a repo, though for a non-technical user a purpose-built GUI (as in this repo) beats all of them.
+
 ---
 
 ## 6. Orchestration options
