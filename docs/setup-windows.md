@@ -74,3 +74,21 @@ Daily rhythm, about an hour:
 4. When people reply or you have calls, mark it on the **People** page.
 
 That's the whole system. Small, steady, and personal — which is exactly what works.
+
+## Getting updates
+
+The Help page inside the app has a **"Check for updates & install"** button — one
+click pulls the latest version and the app restarts itself. Your profile, drafts,
+tracker, and writing style are personal files that updates never touch.
+
+For that button to work, the app needs to have been installed with Git rather than
+a ZIP download: install [Git for Windows](https://git-scm.com/download/win) (all
+defaults are fine), then get the app with
+
+```
+git clone <the repo address>
+```
+
+instead of downloading the ZIP. If you already have the ZIP version, no problem —
+just re-download to update, or ask whoever set it up to switch you to the git
+version once.
