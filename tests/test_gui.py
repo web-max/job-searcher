@@ -1,4 +1,6 @@
 """GUI smoke tests with Flask's test client (Playwright covers the real browser)."""
+import time
+
 import pytest
 
 from agent import tracker
@@ -8,8 +10,13 @@ from agent import tracker
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("MOCK_LLM", "1")
     monkeypatch.setattr(tracker, "DB_PATH", tmp_path / "test.db")
+    from agent import outreach
     from gui import app as gui_app
     monkeypatch.setattr(gui_app, "OUTBOX_DIR", tmp_path / "outbox")
+    # the /outreach route drafts via agent.outreach in a background thread,
+    # which writes to its own OUTBOX_DIR — patch that too or drafts leak
+    # into the real outbox/
+    monkeypatch.setattr(outreach, "OUTBOX_DIR", tmp_path / "outbox")
     (tmp_path / "outbox").mkdir()
     # mark as onboarded so the wizard gate doesn't redirect page tests
     flag = tmp_path / ".onboarded"
@@ -26,8 +33,10 @@ def fresh_client(tmp_path, monkeypatch):
     """A client that has NOT been onboarded (wizard tests)."""
     monkeypatch.setenv("MOCK_LLM", "1")
     monkeypatch.setattr(tracker, "DB_PATH", tmp_path / "test.db")
+    from agent import outreach
     from gui import app as gui_app
     monkeypatch.setattr(gui_app, "OUTBOX_DIR", tmp_path / "outbox")
+    monkeypatch.setattr(outreach, "OUTBOX_DIR", tmp_path / "outbox")
     (tmp_path / "outbox").mkdir()
     monkeypatch.setattr(gui_app, "ONBOARDED_FLAG", tmp_path / ".onboarded")
     monkeypatch.setattr(gui_app, "ENV_PATH", tmp_path / ".env")
@@ -69,6 +78,14 @@ def test_outreach_form_posts(client):
         "channel": "linkedin"})
     assert resp.status_code == 302
     assert tracker.find_contact("Jane Doe") is not None
+    # drafting happens in a background thread; wait for it so the patched
+    # OUTBOX_DIR is still in place while it writes
+    from gui import app as gui_app
+    for _ in range(200):
+        if not gui_app._task["running"]:
+            break
+        time.sleep(0.01)
+    assert not gui_app._task["running"], "draft thread did not finish"
 
 
 def test_outbox_traversal_blocked(client):
