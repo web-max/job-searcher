@@ -204,6 +204,52 @@ def test_help_shows_current_model(client, monkeypatch):
     assert b"higher-quality writing" in resp.data
 
 
+# ---------------------------------------------------------------- updater
+
+def test_update_already_current(client, monkeypatch):
+    from gui import app as gui_app
+    monkeypatch.setattr(gui_app, "_run_update",
+                        lambda: ("current", "You already have the latest version."))
+    resp = client.post("/settings/update")
+    assert resp.status_code == 200
+    assert b"Up to date" in resp.data
+
+
+def test_update_applies_and_restarts(client, monkeypatch):
+    from gui import app as gui_app
+    restarts = []
+    monkeypatch.setattr(gui_app, "_run_update",
+                        lambda: ("updated", "Fast-forwarded to abc123"))
+    monkeypatch.setattr(gui_app.threading, "Timer",
+                        lambda delay, fn: type("T", (), {"start": lambda s: restarts.append(fn)})())
+    resp = client.post("/settings/update")
+    assert b"Restarting" in resp.data
+    assert restarts == [gui_app._restart_app]
+
+
+def test_update_error_shown(client, monkeypatch):
+    from gui import app as gui_app
+    monkeypatch.setattr(gui_app, "_run_update",
+                        lambda: ("error", "Git isn't installed on this computer."))
+    resp = client.post("/settings/update")
+    assert b"Update problem" in resp.data
+    assert b"Git isn" in resp.data
+
+
+def test_help_shows_version_and_update_button(client):
+    resp = client.get("/help")
+    assert b"Check for updates" in resp.data
+    assert b"Version:" in resp.data
+
+
+def test_run_update_without_git_dir(monkeypatch, tmp_path):
+    from gui import app as gui_app
+    monkeypatch.setattr(gui_app, "ROOT", tmp_path)  # no .git inside
+    status, log = gui_app._run_update()
+    assert status == "error"
+    assert "can't self-update" in log
+
+
 def test_wizard_key_saves_model_choice(fresh_client, monkeypatch):
     from gui import app as gui_app
     monkeypatch.setattr(gui_app, "_test_deepseek_key", lambda k: (True, "ok"))

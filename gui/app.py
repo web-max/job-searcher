@@ -12,6 +12,7 @@ Design rules:
 import html
 import io
 import os
+import sys
 import threading
 import traceback
 from contextlib import redirect_stdout, redirect_stderr
@@ -741,6 +742,78 @@ def people_event(cid):
     return redirect(url_for("people"))
 
 
+# ------------------------------------------------------------------ updates
+
+def _git_version():
+    """Short 'where am I' string for the Help page, or None if not a git install."""
+    import shutil
+    import subprocess
+    if not (ROOT / ".git").is_dir() or not shutil.which("git"):
+        return None
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%h from %cd", "--date=format:%b %d, %Y"],
+            cwd=ROOT, capture_output=True, text=True, timeout=10)
+        return out.stdout.strip() or None
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def _run_update():
+    """git pull --ff-only + pip install. Returns (status, log) where status is
+    'updated', 'current', or 'error'."""
+    import shutil
+    import subprocess
+    if not (ROOT / ".git").is_dir():
+        return "error", ("This copy wasn't installed with git, so it can't self-update. "
+                         "Re-download the app to update, or ask whoever set it up to "
+                         "reinstall it with git (then this button works).")
+    if not shutil.which("git"):
+        return "error", ("Git isn't installed on this computer. Install it from "
+                         "git-scm.com (all defaults are fine), restart the app, and "
+                         "this button will work.")
+    try:
+        pull = subprocess.run(["git", "pull", "--ff-only"], cwd=ROOT,
+                              capture_output=True, text=True, timeout=120)
+        log = (pull.stdout + pull.stderr).strip()
+        if pull.returncode != 0:
+            return "error", f"The update couldn't be applied automatically:\n{log}"
+        if "Already up to date" in log or "Already up-to-date" in log:
+            return "current", "You already have the latest version."
+        pip = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q", "-r", "requirements.txt"],
+            cwd=ROOT, capture_output=True, text=True, timeout=300)
+        if pip.returncode != 0:
+            log += "\n(note: dependency install had a hiccup; if the app misbehaves, run: pip install -r requirements.txt)"
+        return "updated", log
+    except (subprocess.SubprocessError, OSError) as e:
+        return "error", f"Update failed: {e}"
+
+
+def _restart_app():
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+@app.route("/settings/update", methods=["POST"])
+def settings_update():
+    status, log = _run_update()
+    if status == "updated":
+        threading.Timer(1.5, _restart_app).start()
+        body = f"""<div class="card"><h1>Updated! Restarting…</h1>
+<div class="banner">The new version is installed. The app is restarting itself -
+this page will reload in a few seconds.</div>
+<pre>{esc(log)}</pre>
+<p class="muted">If the page doesn't come back after ~15 seconds, just start the
+app again the usual way.</p></div>
+<meta http-equiv="refresh" content="8;url=/">"""
+        return page("Updating", body)
+    banner_class = "" if status == "current" else " warnbox"
+    body = f"""<div class="card"><h1>{"Up to date" if status == "current" else "Update problem"}</h1>
+<div class="banner{banner_class}"><pre style="border:none;background:none;padding:0;margin:0">{esc(log)}</pre></div>
+<p><a class="btn secondary" href="/help">Back to Help</a></p></div>"""
+    return page("Update", body)
+
+
 # ------------------------------------------------------------------ help & settings
 
 _MODEL_LABELS = {
@@ -800,6 +873,15 @@ folder, then click the button. The drafts will start sounding like you instead o
 </form>
 <p class="muted">Tip: if drafts feel flat even after learning your writing style, try Pro -
 at this usage it's the difference between pennies and slightly more pennies per month.</p></div>
+<div class="card"><h2>Updates</h2>
+<p>Version: <b>{esc(_git_version() or "not a git install")}</b></p>
+<form method="post" action="/settings/update"
+      onsubmit="var b=this.querySelector('button');b.textContent='Checking… (can take a minute)';setTimeout(function(){{b.disabled=true}},0);">
+<button class="btn">Check for updates &amp; install</button>
+</form>
+<p class="muted">Pulls the latest version from GitHub and restarts the app. Your
+profile, drafts, tracker, and writing style are personal files that updates never
+touch.</p></div>
 <div class="card"><h2>Setup notes</h2>
 <p>The AI key lives in the <code>.env</code> file next to this app. DeepSeek is the cheap default
 (about a dollar a month of usage at this volume): create a key at platform.deepseek.com, then put
