@@ -69,6 +69,13 @@ links:
   portfolio: ""
   other: []
 
+# Used by assisted apply (form filling) when it's switched on. All optional -
+# fields it has no value for are simply left blank for you to fill.
+contact:
+  email: "jane@example.com"
+  phone: "+51 900 000 000"
+  resume_path: ""       # absolute path to your resume PDF, for upload fields
+
 # Target companies (their career pages get polled directly).
 # board: greenhouse | lever | ashby ; slug: the company's token in its job-board URL.
 #   greenhouse: boards.greenhouse.io/<slug>      lever: jobs.lever.co/<slug>

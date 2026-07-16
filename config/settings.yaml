@@ -34,3 +34,13 @@ discovery:
 humanizer:
   max_rewrite_passes: 2           # lint -> rewrite loop budget
   fail_on: ["high"]               # severities that block a draft: high | medium | low
+
+apply:
+  # Assisted apply: a local browser fills non-LinkedIn ATS application forms
+  # (Greenhouse, Lever, Ashby, Workable, Workday) from the profile and the
+  # job's latest application kit, then STOPS on the filled form for review.
+  # It never clicks submit, never touches LinkedIn, and never answers
+  # EEO/demographic or salary questions. The FORM_AUTOFILL env var (set by
+  # the switch on the app's Help page) overrides this file.
+  # One-time setup: pip install playwright && playwright install chromium
+  form_autofill: false

@@ -553,6 +553,11 @@ def job_detail(job_id):
     j = tracker.get_job(job_id)
     if not j:
         return page("Not found", '<div class="card">Job not found.</div>')
+    autofill_btn = ""
+    if _autofill_on():
+        autofill_btn = (f'<form method="post" action="/job/{esc(job_id)}/autofill" '
+                        f'style="display:inline"><button class="btn">Fill the application '
+                        f'form</button></form> ')
     body = f"""<div class="card">
 <h1>{esc(j['title'])}</h1>
 <p>{esc(j['company'])} · {esc(j['location'] or 'location n/a')} · posted {esc(j['posted_at'] or '?')}
@@ -562,7 +567,7 @@ def job_detail(job_id):
 <p><a class="btn secondary" href="{esc(j['url'])}" target="_blank">Open the real posting ↗</a>
 <form method="post" action="/job/{esc(job_id)}/tailor" style="display:inline">
 <button class="btn" {"disabled" if _task["running"] else ""}>Build my application kit</button></form>
-<a class="btn" href="/outreach?job={esc(job_id)}&company={esc(j['company'])}">Write outreach for this job</a>
+{autofill_btn}<a class="btn" href="/outreach?job={esc(job_id)}&company={esc(j['company'])}">Write outreach for this job</a>
 </p>
 <form method="post" action="/job/{esc(job_id)}/event" style="display:inline">
 <button class="btn secondary" name="event" value="applied">I applied ✓</button>
@@ -570,6 +575,21 @@ def job_detail(job_id):
 </div>
 <div class="card"><h2>Posting text</h2><pre>{esc(j['description'][:5000])}</pre></div>"""
     return page(j["title"], body)
+
+
+@app.route("/job/<job_id>/autofill", methods=["POST"])
+def job_autofill(job_id):
+    """Assisted apply in its own process: fills the ATS form, never submits.
+
+    Separate process (not _run_bg) so the browser stays open for her review
+    for as long as she wants without holding the app's one task slot.
+    """
+    import subprocess
+    import sys as _sys
+    if _autofill_on() and tracker.get_job(job_id):
+        subprocess.Popen([_sys.executable, "-m", "agent", "apply", "--job", job_id],
+                         cwd=str(ROOT))
+    return redirect(url_for("job_detail", job_id=job_id))
 
 
 @app.route("/job/<job_id>/tailor", methods=["POST"])
@@ -858,6 +878,20 @@ def settings_model():
     return redirect(url_for("help_page"))
 
 
+def _autofill_on():
+    from agent import apply
+    from agent.settings import load_settings
+    return apply.autofill_enabled(load_settings())
+
+
+@app.route("/settings/autofill", methods=["POST"])
+def settings_autofill():
+    value = "1" if request.form.get("enable") == "1" else "0"
+    _save_env_key("FORM_AUTOFILL", value)
+    os.environ["FORM_AUTOFILL"] = value
+    return redirect(url_for("help_page"))
+
+
 @app.route("/help")
 def help_page():
     voice_built = VOICE_PROFILE_PATH.exists()
@@ -890,6 +924,17 @@ folder, then click the button. The drafts will start sounding like you instead o
 </form>
 <p class="muted">Tip: if drafts feel flat even after learning your writing style, try Pro -
 at this usage it's the difference between pennies and slightly more pennies per month.</p></div>
+<div class="card"><h2>Assisted apply (beta)</h2>
+<p>Status: <b>{"on" if _autofill_on() else "off"}</b></p>
+<form method="post" action="/settings/autofill">
+<button class="btn secondary" name="enable" value="{"0" if _autofill_on() else "1"}">
+Turn it {"off" if _autofill_on() else "on"}</button></form>
+<p class="muted">When on, job pages get a "Fill the application form" button. It opens a
+browser on the company's application form (Greenhouse, Lever, Ashby - never LinkedIn) and
+fills it from your profile and that job's application kit, then <b>stops on the filled
+form</b>. It never presses submit, and it never answers demographic or salary questions -
+you check every field, finish the rest, and submit it yourself. One-time setup in a
+terminal: <code>pip install playwright &amp;&amp; playwright install chromium</code></p></div>
 <div class="card"><h2>Updates</h2>
 <p>Version: <b>{esc(_git_version() or "not a git install")}</b></p>
 <form method="post" action="/settings/update"

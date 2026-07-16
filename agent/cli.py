@@ -69,6 +69,11 @@ def cmd_tailor(args):
     tailor.run(args.job)
 
 
+def cmd_apply(args):
+    from . import apply
+    apply.run(args.job, load_settings(), load_profile(), url=args.url)
+
+
 def cmd_outreach(args):
     from . import outreach, tracker
     if args.person and not tracker.find_contact(args.person):
@@ -130,6 +135,11 @@ def main():
     sp = sub.add_parser("tailor", help="keyword gaps + bullets + cover note for one job")
     sp.add_argument("--job", required=True)
 
+    sp = sub.add_parser("apply", help="fill the job's application form in a local browser, "
+                                      "then stop for your review (never submits)")
+    sp.add_argument("--job", required=True)
+    sp.add_argument("--url", help="the application form url, if the posting url isn't the form")
+
     sp = sub.add_parser("outreach", help="draft an outreach message into outbox/")
     sp.add_argument("--kind", required=True,
                     choices=["connection_note", "info_interview", "hiring_manager", "recruiter",
@@ -168,7 +178,8 @@ def main():
     {
         "gui": cmd_gui,
         "discover": cmd_discover, "rank": cmd_rank, "report": cmd_report,
-        "tailor": cmd_tailor, "outreach": cmd_outreach, "voice-build": cmd_voice_build,
+        "tailor": cmd_tailor, "apply": cmd_apply, "outreach": cmd_outreach,
+        "voice-build": cmd_voice_build,
         "lint": cmd_lint, "log": cmd_log, "status": cmd_status,
     }[args.cmd](args)
 

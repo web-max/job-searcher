@@ -5,10 +5,12 @@ This is a human-in-the-loop job search agent for one person. Read
 
 ## Prime directives
 
-1. **Never send anything.** Messages, applications, connection requests — all of it is
-   drafted into `outbox/` and a human sends it. Never automate a logged-in browser
-   action on LinkedIn or any job platform. This is non-negotiable: it's a ban risk for
-   her accounts and it's the difference between outreach and spam.
+1. **Never submit anything.** Messages, applications, connection requests — a human
+   presses every send/submit button. Machines may do all the mechanical prep up to
+   that button: assisted apply (`python -m agent apply --job <id>`, off by default,
+   toggled in settings) fills non-LinkedIn ATS forms and stops on the filled form for
+   her review. Two hard sub-rules: **LinkedIn is never automated** in any way (account
+   ban risk), and **EEO/demographic/salary questions are never machine-answered.**
 2. **Never fabricate.** No invented experience, metrics, or mutual connections in any
    draft. If the profile doesn't support a claim, don't make it.
 3. **Respect the volume caps** in `config/settings.yaml`. If today's cap is reached,
@@ -19,6 +21,21 @@ This is a human-in-the-loop job search agent for one person. Read
 5. **Privacy.** `config/profile.yaml`, `voice/`, `data/`, and `outbox/` are gitignored
    personal data. Never commit them, never paste their contents into PRs or issues.
 
+## Human intelligence in the loop, not a human meat puppet (owner decision, 2026-07-16)
+
+The human-in-the-loop check exists for judgment, not for labor. Reviewing a filled
+form, catching a claim that isn't true, deciding "this sounds like me", pressing
+submit — that is human intelligence, and it stays human. Copy-pasting machine output
+field by field into a form is meat-puppet work: the machine already did the thinking
+and the human is just its hands. Automate the meat-puppet part; never the judgment
+part.
+
+The practical line: machines may draft, fill, and prepare everything right up to the
+submit/send button, and must always land the human on a reviewable screen where every
+machine-entered value can be checked and corrected before she fires. That's why
+assisted apply exists, why it never clicks submit, and why the LinkedIn and
+EEO/demographic exclusions above are hard limits rather than defaults.
+
 ## How to run things
 
 ```bash
@@ -26,6 +43,7 @@ python -m agent discover      # pull fresh jobs (APIs only, no scraping)
 python -m agent rank          # LLM-score against config/profile.yaml
 python -m agent report        # top matches + follow-ups due + pipeline
 python -m agent tailor --job <id>
+python -m agent apply --job <id>   # fill the ATS form locally, stop for review; needs apply.form_autofill on
 python -m agent outreach --kind info_interview --person "Name" --person-role "Role" --company "Co" --job <id> --context "specific detail about them"
 python -m agent voice-build   # rebuild voice profile from voice/corpus/
 python -m agent lint --file outbox/some-draft.md
